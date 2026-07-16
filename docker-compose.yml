@@ -1,0 +1,19 @@
+services:
+  contbak:
+    image: fron/contbak:0.1.0
+    container_name: ContBak
+    restart: unless-stopped
+    ports:
+      - "8787:8080"
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      CONTBAK_USER: ${CONTBAK_USER}
+      CONTBAK_PASSWORD: ${CONTBAK_PASSWORD}
+      BACKUP_ROOT: /backups
+      HELPER_IMAGE: ${HELPER_IMAGE:-alpine:3.22}
+      STOP_CONTAINERS: ${STOP_CONTAINERS:-true}
+      RETENTION_COUNT: ${RETENTION_COUNT:-7}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /volume1/docker/contbak/config:/data
+      - /volume1/docker/contbak/backups:/backups
