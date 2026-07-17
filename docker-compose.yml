@@ -1,20 +1,28 @@
 services:
-  dockback:
-    build: .
-    container_name: DockBack
+  contbak:
+    image: frazon11/contbak:1.0.2
+    container_name: ContBak
     restart: unless-stopped
     ports:
       - "8787:8080"
     environment:
-      TZ: ${TZ}
-      DOCKBACK_USER: ${DOCKBACK_USER}
-      DOCKBACK_PASSWORD: ${DOCKBACK_PASSWORD}
-      BACKUP_ROOT: ${BACKUP_ROOT}
-      BACKUP_HOST_PATH: ${BACKUP_HOST_PATH}
-      HELPER_IMAGE: ${HELPER_IMAGE}
-      STOP_CONTAINERS: ${STOP_CONTAINERS}
-      RETENTION_COUNT: ${RETENTION_COUNT}
+      TZ: ${TZ:-Europe/Brussels}
+      CONTBAK_USER: ${CONTBAK_USER}
+      CONTBAK_PASSWORD: ${CONTBAK_PASSWORD}
+      BACKUP_ROOT: /backups
+      CONTBAK_BACKUP_PATH: ${CONTBAK_BACKUP_PATH:-/volume1/docker/contbak/backups}
+      HELPER_IMAGE: ${HELPER_IMAGE:-alpine:3.22}
+      STOP_CONTAINERS: ${STOP_CONTAINERS:-true}
+      RETENTION_COUNT: ${RETENTION_COUNT:-7}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /volume1/docker/dockback/config:/data
-      - /volume1/docker/dockback/backups:/backups
+      - ${CONTBAK_CONFIG_PATH:-/volume1/docker/contbak/config}:/data
+      - ${CONTBAK_BACKUP_PATH:-/volume1/docker/contbak/backups}:/backups
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      contbak.exclude: "true"

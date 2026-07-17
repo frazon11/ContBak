@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ContBak</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <aside>
+    <div class="brand">ContBak</div>
+    <button data-view="dashboard" class="nav active">Dashboard</button>
+    <button data-view="containers" class="nav">Containers</button>
+    <button data-view="backups" class="nav">Backups</button>
+  </aside>
+  <main>
+    <header>
+      <div>
+        <h1 id="title">Dashboard</h1>
+        <div id="subtitle">Container Backup Manager</div>
+      </div>
+      <button id="refresh">Refresh</button>
+    </header>
+    <div id="notice" class="notice hidden"></div>
+    <section id="content"></section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,31 +1,42 @@
-# DockBack v2
+# ContBak
 
-Neu:
-- mehrere Container per Checkbox auswählen
-- einzelner Container separat sichern
-- pro Container einzelne Named Volumes oder Bind-Mounts auswählen
-- selektiver Restore einzelner gesicherter Mounts
-- tägliche Zeitpläne pro Container
+ContBak is a lightweight Docker container backup manager with a web interface.
 
-Installation:
-1. `.env.example` nach `.env` kopieren und Kennwort ändern.
-2. `docker compose up -d --build`
-3. WebUI: `http://NAS-IP:8787`
+## Version 1.0.2 fixes
 
-Hinweis: Zeitpläne sichern derzeit immer alle Mounts des jeweiligen Containers.
+- Helper containers receive the real Docker-host path through `CONTBAK_BACKUP_PATH`.
+- `/backups` inside ContBak is no longer incorrectly used as a host bind source.
+- Target containers are restarted in a `finally` block after backup attempts.
+- Docker errors are shown as readable API/UI messages instead of an unhandled HTTP 500.
+- The Backups tab scans recursively and also finds legacy `*.tar.gz` archives.
+- Manual GitHub workflow runs always have an SHA tag; only release tags push to Docker Hub.
 
+## Synology / Portainer
 
-## Wichtig: Host-Pfad für Hilfscontainer
-`BACKUP_ROOT=/backups` ist der Pfad innerhalb von DockBack. Temporäre Hilfscontainer werden jedoch vom Docker-Daemon gestartet und benötigen den realen Pfad auf dem Synology-Host:
+Create:
 
-```dotenv
-BACKUP_ROOT=/backups
-BACKUP_HOST_PATH=/volume1/docker/dockback/backups
+```sh
+mkdir -p /volume1/docker/contbak/config
+mkdir -p /volume1/docker/contbak/backups
 ```
 
-Ohne `BACKUP_HOST_PATH` würde Docker versuchen, den Host-Pfad `/backups` einzubinden und mit `Bind mount failed: '/backups' does not exist` abbrechen.
+Keep this in `.env`:
 
-## Version 2.2
-- Backup-Liste durchsucht den kompletten Backup-Pfad rekursiv.
-- Vorhandene Archive ohne `manifest.json` werden als `incomplete` angezeigt.
-- Das Manifest wird künftig vor dem Kopieren angelegt und nach Erfolg auf `complete` gesetzt.
+```env
+CONTBAK_BACKUP_PATH=/volume1/docker/contbak/backups
+```
+
+The path has two different roles:
+
+- `BACKUP_ROOT=/backups`: path inside the ContBak container.
+- `CONTBAK_BACKUP_PATH=/volume1/...`: real path visible to the Synology Docker daemon.
+
+## Release
+
+```sh
+git add -A
+git commit -m "Release ContBak 1.0.2"
+git push origin main
+git tag -a v1.0.2 -m "ContBak 1.0.2"
+git push origin v1.0.2
+```

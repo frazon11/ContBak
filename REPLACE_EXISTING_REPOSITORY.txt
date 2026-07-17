@@ -1,0 +1,20 @@
+Do not delete the .git folder.
+
+Recommended replacement procedure:
+
+1. Make a backup copy of the current repository folder.
+2. In the real repository folder, delete all project files and folders EXCEPT:
+   - .git
+   - .env
+3. Extract this ZIP into the repository root.
+4. Keep your existing private .env. Do not replace it with .env.example.
+5. Run:
+
+   git status
+   git add -A
+   git commit -m "Release ContBak 1.0.2"
+   git push origin main
+   git tag -a v1.0.2 -m "ContBak 1.0.2"
+   git push origin v1.0.2
+
+Using git add -A is important because it records obsolete file deletions.
