@@ -7,7 +7,7 @@ import shlex
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import docker
 from docker.errors import APIError, DockerException, NotFound
@@ -15,16 +15,21 @@ from docker.errors import APIError, DockerException, NotFound
 from .config import BACKUP_HOST_ROOT, BACKUP_ROOT, HELPER_IMAGE, RETENTION_COUNT, STOP_CONTAINERS
 
 log = logging.getLogger("contbak")
+ProgressCallback = Callable[[int, str, str], None]
+
 
 class ContBakError(RuntimeError):
     pass
+
 
 def safe_name(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return cleaned.strip("._") or "container"
 
+
 def utcstamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+
 
 @dataclass
 class BackupRecord:
@@ -39,6 +44,7 @@ class BackupRecord:
     def as_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
 
+
 class DockerService:
     def __init__(self) -> None:
         try:
@@ -46,6 +52,14 @@ class DockerService:
             self.client.ping()
         except DockerException as exc:
             raise ContBakError(f"Cannot connect to Docker: {exc}") from exc
+
+    def get_container_name(self, container_id: str) -> str:
+        try:
+            return self.client.containers.get(container_id).name
+        except NotFound as exc:
+            raise ContBakError("Container not found.") from exc
+        except APIError as exc:
+            raise ContBakError(f"Docker error while reading container: {exc}") from exc
 
     def list_containers(self) -> list[dict[str, Any]]:
         rows = []
@@ -69,8 +83,8 @@ class DockerService:
             if mount.get("Type") in {"bind", "volume"} and mount.get("Source")
         ]
 
-    def _backup_dir(self, container_name: str, stamp: str) -> Path:
-        target = BACKUP_ROOT / safe_name(container_name) / stamp
+    def _backup_dir(self, container_name: str) -> Path:
+        target = BACKUP_ROOT / safe_name(container_name) / utcstamp()
         target.mkdir(parents=True, exist_ok=False)
         return target
 
@@ -78,19 +92,24 @@ class DockerService:
         relative = backup_dir.relative_to(BACKUP_ROOT)
         host_output = BACKUP_HOST_ROOT / relative
 
+        # Docker runs on the Synology host. Therefore the bind source must be
+        # CONTBAK_BACKUP_PATH, never BACKUP_ROOT (/backups inside ContBak).
         volumes: dict[str, dict[str, str]] = {
             str(host_output): {"bind": "/output", "mode": "rw"}
         }
-        source_paths = []
-
+        source_paths: list[str] = []
         for index, mount in enumerate(mounts):
             helper_path = f"/source/{index}"
             volumes[str(mount["Source"])] = {"bind": helper_path, "mode": "ro"}
             source_paths.append(helper_path)
-
         return volumes, source_paths
 
-    def create_backup(self, container_id: str) -> dict[str, Any]:
+    def create_backup(self, container_id: str, progress: ProgressCallback | None = None) -> dict[str, Any]:
+        def report(percent: int, stage: str, message: str) -> None:
+            if progress:
+                progress(percent, stage, message)
+
+        report(5, "Preparing", "Reading container configuration.")
         try:
             container = self.client.containers.get(container_id)
         except NotFound as exc:
@@ -98,17 +117,15 @@ class DockerService:
         except APIError as exc:
             raise ContBakError(f"Docker error while reading container: {exc}") from exc
 
-        stamp = utcstamp()
-        backup_dir = self._backup_dir(container.name, stamp)
+        backup_dir = self._backup_dir(container.name)
         archive = backup_dir / "data.tar.gz"
         metadata_file = backup_dir / "metadata.json"
-
         was_running = container.status == "running"
         stopped_by_us = False
-        backup_error = None
-        restart_error = None
+        backup_error: Exception | None = None
+        restart_error: Exception | None = None
 
-        metadata = {
+        metadata: dict[str, Any] = {
             "format_version": 1,
             "container_id": container.id,
             "container_name": container.name,
@@ -121,9 +138,11 @@ class DockerService:
 
         try:
             if STOP_CONTAINERS and was_running:
+                report(15, "Stopping", f"Stopping {container.name} for a consistent backup.")
                 container.stop(timeout=30)
                 stopped_by_us = True
 
+            report(30, "Inspecting", "Collecting bind mounts and Docker volumes.")
             mounts = self._mounts(container)
             metadata["mounts"] = mounts
             volumes, sources = self._helper_volumes(mounts, backup_dir)
@@ -134,6 +153,7 @@ class DockerService:
             else:
                 command = "set -eu; mkdir -p /empty; tar -czf /output/data.tar.gz -C /empty ."
 
+            report(45, "Archiving", f"Creating archive using {HELPER_IMAGE}.")
             output = self.client.containers.run(
                 HELPER_IMAGE,
                 ["sh", "-c", command],
@@ -143,6 +163,7 @@ class DockerService:
                 stdout=True,
                 stderr=True,
             )
+            report(80, "Finalizing", "Writing metadata and applying retention.")
             metadata["helper_output"] = output.decode("utf-8", errors="replace")[-4000:]
             metadata["status"] = "complete"
         except Exception as exc:
@@ -153,13 +174,13 @@ class DockerService:
         finally:
             if stopped_by_us:
                 try:
+                    report(88, "Restarting", f"Restarting {container.name}.")
                     container.reload()
                     container.start()
                 except Exception as exc:
                     restart_error = exc
                     metadata["restart_error"] = str(exc)
                     log.exception("Restart failed for %s", container.name)
-
             metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
         if backup_error or restart_error:
@@ -171,34 +192,27 @@ class DockerService:
             raise ContBakError(" | ".join(parts))
 
         self.apply_retention(container.name)
+        report(100, "Complete", f"Backup of {container.name} completed.")
         return self._record_from_dir(backup_dir).as_dict()
 
     def apply_retention(self, container_name: str) -> None:
         container_dir = BACKUP_ROOT / safe_name(container_name)
         if not container_dir.exists():
             return
-        directories = sorted(
-            [path for path in container_dir.iterdir() if path.is_dir()],
-            key=lambda path: path.name,
-            reverse=True,
-        )
+        directories = sorted([p for p in container_dir.iterdir() if p.is_dir()], key=lambda p: p.name, reverse=True)
         for old in directories[RETENTION_COUNT:]:
             self._remove_tree(old)
 
     def _record_from_dir(self, directory: Path) -> BackupRecord:
         metadata_path = directory / "metadata.json"
         archive_path = directory / "data.tar.gz"
-        data = {}
+        data: dict[str, Any] = {}
         if metadata_path.exists():
             try:
                 data = json.loads(metadata_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 data = {}
-
-        created = data.get("created_at") or datetime.fromtimestamp(
-            directory.stat().st_mtime, tz=timezone.utc
-        ).isoformat()
-
+        created = data.get("created_at") or datetime.fromtimestamp(directory.stat().st_mtime, tz=timezone.utc).isoformat()
         return BackupRecord(
             backup_id=directory.relative_to(BACKUP_ROOT).as_posix(),
             container_name=data.get("container_name") or directory.parent.name,
@@ -210,14 +224,12 @@ class DockerService:
         )
 
     def list_backups(self) -> list[dict[str, Any]]:
-        records = []
-        known_dirs = set()
-
+        records: list[BackupRecord] = []
+        known_dirs: set[Path] = set()
         for metadata_path in BACKUP_ROOT.rglob("metadata.json"):
             directory = metadata_path.parent
             records.append(self._record_from_dir(directory))
             known_dirs.add(directory)
-
         for archive in BACKUP_ROOT.rglob("*.tar.gz"):
             if archive.parent in known_dirs:
                 continue
@@ -230,11 +242,7 @@ class DockerService:
                 size=archive.stat().st_size,
                 status="legacy",
             ))
-
-        return [
-            record.as_dict()
-            for record in sorted(records, key=lambda item: item.created_at, reverse=True)
-        ]
+        return [r.as_dict() for r in sorted(records, key=lambda item: item.created_at, reverse=True)]
 
     def _remove_tree(self, target: Path) -> None:
         for child in sorted(target.rglob("*"), reverse=True):

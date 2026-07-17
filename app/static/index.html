@@ -15,15 +15,21 @@
   </aside>
   <main>
     <header>
-      <div>
-        <h1 id="title">Dashboard</h1>
-        <div id="subtitle">Container Backup Manager</div>
-      </div>
+      <div><h1 id="title">Dashboard</h1><div id="subtitle">Container Backup Manager</div></div>
       <button id="refresh">Refresh</button>
     </header>
     <div id="notice" class="notice hidden"></div>
     <section id="content"></section>
   </main>
+  <div id="progress-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="progress-title">Creating backup</h2>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      <div class="progress-line"><strong id="progress-percent">0%</strong><span id="progress-stage">Queued</span></div>
+      <p id="progress-message" class="muted">Backup queued.</p>
+      <button id="progress-close" class="hidden">Close</button>
+    </div>
+  </div>
   <script src="/static/app.js"></script>
 </body>
 </html>

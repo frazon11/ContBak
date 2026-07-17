@@ -2,7 +2,7 @@
 
 ContBak is a lightweight Docker container backup manager with a web interface.
 
-## Version 1.0.2 fixes
+## Version 1.0.3
 
 - Helper containers receive the real Docker-host path through `CONTBAK_BACKUP_PATH`.
 - `/backups` inside ContBak is no longer incorrectly used as a host bind source.
@@ -35,8 +35,12 @@ The path has two different roles:
 
 ```sh
 git add -A
-git commit -m "Release ContBak 1.0.2"
+git commit -m "Release ContBak 1.0.3"
 git push origin main
-git tag -a v1.0.2 -m "ContBak 1.0.2"
-git push origin v1.0.2
+git tag -a v1.0.3 -m "ContBak 1.0.3"
+git push origin v1.0.3
 ```
+
+## Backup progress
+
+The UI shows stage-based progress: preparing, stopping, inspecting, archiving, restarting, and complete. This is not a byte-exact tar percentage.

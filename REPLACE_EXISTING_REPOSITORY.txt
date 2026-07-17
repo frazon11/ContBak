@@ -1,20 +1,16 @@
-Do not delete the .git folder.
+Do not delete the .git folder in your local repository.
 
-Recommended replacement procedure:
-
-1. Make a backup copy of the current repository folder.
-2. In the real repository folder, delete all project files and folders EXCEPT:
-   - .git
-   - .env
+1. Make a backup copy of the current repository.
+2. Delete all project files and folders except `.git` and your private `.env`.
 3. Extract this ZIP into the repository root.
-4. Keep your existing private .env. Do not replace it with .env.example.
+4. Do not copy `.env.example` over your existing `.env`.
 5. Run:
 
    git status
    git add -A
-   git commit -m "Release ContBak 1.0.2"
+   git commit -m "Release ContBak 1.0.3"
    git push origin main
-   git tag -a v1.0.2 -m "ContBak 1.0.2"
-   git push origin v1.0.2
+   git tag -a v1.0.3 -m "ContBak 1.0.3"
+   git push origin v1.0.3
 
-Using git add -A is important because it records obsolete file deletions.
+6. After the GitHub Action succeeds, deploy `frazon11/contbak:1.0.3` and force-pull the image.
