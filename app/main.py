@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-APP_NAME='ContBak'; VERSION='1.2.1'
+APP_NAME='ContBak'; VERSION='1.2.2'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -79,7 +79,15 @@ def backup_container(container_id,stop:Optional[bool]=None):
    (target/'container-inspect.json').write_text(json.dumps(c.attrs,indent=2),encoding='utf-8')
    for i,m in enumerate(info['mounts']):
     archive=f"mount_{i:02d}_{safe(Path(m['destination']).name or 'root')}.tar.gz"; source=m['source']
-    run_helper({source:{'bind':'/source','mode':'ro'},str(host_backup_root()):{'bind':'/backup','mode':'rw'}},f'tar -C /source -czf /backup/{target_rel}/{archive} .'); m['archive']=archive
+    result=run_helper(
+     {source:{'bind':'/source','mode':'ro'},str(host_backup_root()):{'bind':'/backup','mode':'rw'}},
+     f"if [ -d /source ]; then tar -C /source -czf /backup/{target_rel}/{archive} . && printf directory; "
+     f"elif [ -f /source ]; then tar -C / -czf /backup/{target_rel}/{archive} source && printf file; "
+     f"else printf special; fi"
+    ).strip()
+    if result=='directory':m['archive']=archive;m['archive_type']='directory'
+    elif result=='file':m['archive']=archive;m['archive_type']='file'
+    else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount ist weder Verzeichnis noch reguläre Datei (z. B. Docker-Socket).'
    (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8'); prune(BACKUP_ROOT/safe(c.name)); add_run(c.name,started,'success',f"{len(info['mounts'])} Mount(s) gesichert",str(target))
   except Exception as e: add_run(c.name,started,'error',str(e),str(target)); raise
   finally:
@@ -96,8 +104,12 @@ def restore_backup(rel_path):
   try:
    for m in manifest['mounts']:
     if not m.get('archive'):continue
-    rel=target.relative_to(BACKUP_ROOT); source=m['source']
-    run_helper({source:{'bind':'/target','mode':'rw'},str(host_backup_root()):{'bind':'/backup','mode':'ro'}},f"find /target -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; tar -C /target -xzf /backup/{rel}/{m['archive']}")
+    rel=target.relative_to(BACKUP_ROOT); source=m['source']; archive_type=m.get('archive_type','directory')
+    if archive_type=='file':
+     command=f"tar -xOzf /backup/{rel}/{m['archive']} source > /target"
+    else:
+     command=f"find /target -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; tar -C /target -xzf /backup/{rel}/{m['archive']}"
+    run_helper({source:{'bind':'/target','mode':'rw'},str(host_backup_root()):{'bind':'/backup','mode':'ro'}},command)
   finally:
    if was_running:c.start()
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 - 2026-07-18
+
+- Handle directory and regular-file mounts separately.
+- Skip sockets and other special mounts such as `/var/run/docker.sock`.
+- Restore regular-file mounts with streamed extraction.
+
 All notable changes are documented here.
 
 ## 1.2.1 — 2026-07-18
