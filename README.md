@@ -133,3 +133,13 @@ frazon11/contbak:latest
 ## License
 
 MIT License. See `LICENSE`.
+
+
+
+
+
+__________________________________________________________________________________________
+
+if you like my ideas and /or projects, feel free to support me:
+
+paypal.me/FrazoN11
