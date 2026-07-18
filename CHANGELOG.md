@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+- Added asynchronous backup jobs with immediate UI feedback.
+- Added per-container progress bar, status message and live job log.
+- Added start, success and error toast notifications.
+- Disabled the backup button while a job is active.
+- Added automatic page refresh after successful completion.
+
 ## 1.2.3
 - Skip host pseudo filesystems such as `/proc`, `/sys`, and `/dev`.
 - Skip Docker sockets explicitly.
