@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-APP_NAME='ContBak'; VERSION='1.2.0'
+APP_NAME='ContBak'; VERSION='1.2.1'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -58,7 +58,7 @@ def host_backup_root():
 def run_helper(volumes,command):
  client.images.pull(HELPER_IMAGE)
  out=client.containers.run(HELPER_IMAGE,['sh','-c',command],volumes=volumes,remove=True,stdout=True,stderr=True)
- return out.decode(errors='replace')
+ return out.decode(errors='replace') if isinstance(out,(bytes,bytearray)) else ''
 
 def add_run(name,started,status,message,path=''):
  with db_conn() as c:c.execute('INSERT INTO runs(container_name,started,ended,status,message,path) VALUES(?,?,?,?,?,?)',(name,started,datetime.now().isoformat(timespec='seconds'),status,message,path))

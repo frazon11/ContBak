@@ -2,7 +2,7 @@
 
 All notable changes are documented here.
 
-## 1.2.0 — 2026-07-18
+## 1.2.1 — 2026-07-18
 
 ### Fixed
 - Helper containers now bind the real Docker-host backup path from `CONTBAK_BACKUP_PATH` instead of the internal `/backups` container path.

@@ -1,6 +1,6 @@
 services:
   contbak:
-    image: frazon11/contbak:1.2.0
+    image: frazon11/contbak:1.2.1
     container_name: ContBak
     restart: unless-stopped
     ports:
