@@ -1,20 +1,26 @@
 # Changelog
 
-## 1.0.3 - 2026-07-17
+All notable changes are documented here.
+
+## 1.2.0 — 2026-07-18
 
 ### Fixed
-- Helper container now always uses `CONTBAK_BACKUP_PATH` as Docker host bind source.
-- Prevented `Bind mount failed: '/backups' does not exist` on Synology.
-- Unexpected exceptions are returned as readable JSON errors instead of an HTML Internal Server Error page.
-- Backup directories use microseconds to prevent duplicate directory names.
-- Target containers are restarted in a `finally` block.
-
-### Added
-- Asynchronous backup jobs.
-- Job status API at `/api/jobs/{job_id}`.
-- Visible stage-based progress indicator with percentage.
-- Duplicate-click protection while a container backup is running.
-- HTTP Basic authentication using `CONTBAK_USER` and `CONTBAK_PASSWORD`.
+- Helper containers now bind the real Docker-host backup path from `CONTBAK_BACKUP_PATH` instead of the internal `/backups` container path.
+- Backup and restore therefore work on Synology/Portainer without `Bind mount failed: '/backups' does not exist`.
 
 ### Changed
-- Release image is `frazon11/contbak:1.0.3`.
+- The web interface now displays the running ContBak version.
+
+## 1.0.0 — 2026-07-16
+
+### Added
+- Automatic discovery of Docker containers, named volumes, and bind mounts.
+- Backup of individual containers or all discovered containers.
+- Optional container stop/start around a backup.
+- Restore of stored mounts to an existing container.
+- Daily schedules per container.
+- Retention management.
+- Responsive web dashboard and backup history.
+- Health endpoint and Docker health check.
+- Multi-architecture Docker Hub publishing for amd64 and arm64.
+- Synology and Portainer compose example.
