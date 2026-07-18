@@ -1,15 +1,15 @@
-import base64, json, os, re, secrets, sqlite3, threading
+import base64, json, os, re, secrets, sqlite3, threading, uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import docker
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-APP_NAME='ContBak'; VERSION='1.2.3'
+APP_NAME='ContBak'; VERSION='1.3.0'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -21,6 +21,35 @@ BACKUP_ROOT.mkdir(parents=True,exist_ok=True); DATA_ROOT.mkdir(parents=True,exis
 client=docker.from_env(); app=FastAPI(title=APP_NAME,version=VERSION)
 app.mount('/static',StaticFiles(directory='static'),name='static')
 templates=Jinja2Templates(directory='templates'); lock=threading.Lock()
+job_lock=threading.Lock(); active_jobs={}
+
+
+
+def update_job(job_id, **changes):
+ with job_lock:
+  job=active_jobs.get(job_id)
+  if not job:return
+  job.update(changes)
+  if 'message' in changes:
+   job.setdefault('log',[]).append({'time':datetime.now().strftime('%H:%M:%S'),'message':str(changes['message'])})
+
+def job_progress(job_id,progress,message,status='running'):
+ update_job(job_id,progress=max(0,min(100,int(progress))),message=message,status=status)
+
+def run_backup_job(job_id,container_id,stop):
+ try:
+  backup_container(container_id,stop,lambda p,m:job_progress(job_id,p,m))
+  job_progress(job_id,100,'Backup erfolgreich abgeschlossen.','success')
+ except Exception as exc:
+  update_job(job_id,status='error',message=str(exc),error=str(exc),progress=100)
+
+def start_backup_job(container_id,stop):
+ c=client.containers.get(container_id)
+ job_id=uuid.uuid4().hex
+ with job_lock:
+  active_jobs[job_id]={'id':job_id,'container_id':container_id,'container_name':c.name,'status':'queued','progress':0,'message':'Backup wird vorbereitet …','error':None,'log':[{'time':datetime.now().strftime('%H:%M:%S'),'message':'Backup angefordert.'}]}
+ threading.Thread(target=run_backup_job,args=(job_id,container_id,stop),daemon=True,name=f'backup-{job_id[:8]}').start()
+ return active_jobs[job_id].copy()
 
 def db_conn():
  c=sqlite3.connect(DB); c.row_factory=sqlite3.Row; return c
@@ -85,16 +114,22 @@ def prune(folder):
  import shutil
  for old in sets[RETENTION_COUNT:]: shutil.rmtree(old,ignore_errors=True)
 
-def backup_container(container_id,stop:Optional[bool]=None):
+def backup_container(container_id,stop:Optional[bool]=None,progress=None):
  with lock:
   started=datetime.now().isoformat(timespec='seconds'); c=client.containers.get(container_id); info=container_info(c)
   was_running=c.status=='running'; should_stop=STOP_DEFAULT if stop is None else stop
+  if progress:progress(3,f'Container {c.name} wird vorbereitet …')
   stamp=datetime.now().strftime('%Y-%m-%d_%H-%M-%S'); target_rel=f'{safe(c.name)}/{stamp}'; target=BACKUP_ROOT/target_rel; target.mkdir(parents=True,exist_ok=True)
   try:
-   if was_running and should_stop:c.stop(timeout=30)
+   if was_running and should_stop:
+    if progress:progress(8,'Container wird gestoppt …')
+    c.stop(timeout=30)
+   if progress:progress(12,'Container-Metadaten werden gespeichert …')
    (target/'container-inspect.json').write_text(json.dumps(c.attrs,indent=2),encoding='utf-8')
    backed_up=0; skipped=0; failed=0
-   for i,m in enumerate(info['mounts']):
+   mounts=info['mounts']; total=max(1,len(mounts))
+   for i,m in enumerate(mounts):
+    if progress:progress(15 + int((i/total)*70),f"Mount {i+1}/{len(mounts)} wird geprüft: {m.get('destination','')}")
     archive=f"mount_{i:02d}_{safe(Path(m['destination']).name or 'root')}.tar.gz"; source=m['source']
     skip_reason=pseudo_or_special_mount(m)
     if skip_reason:
@@ -111,13 +146,19 @@ def backup_container(container_id,stop:Optional[bool]=None):
      else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount ist weder Verzeichnis noch reguläre Datei.';skipped+=1
     except Exception as mount_error:
      m['archive']=None;m['archive_type']='error';m['skipped_reason']=str(mount_error);failed+=1
-   (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8'); prune(BACKUP_ROOT/safe(c.name))
+   if progress:progress(88,'Manifest wird gespeichert …')
+   (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
+   if progress:progress(93,'Alte Backups werden bereinigt …')
+   prune(BACKUP_ROOT/safe(c.name))
    status='success' if failed==0 else 'warning'
    add_run(c.name,started,status,f"{backed_up} gesichert, {skipped} übersprungen, {failed} fehlgeschlagen",str(target))
+   if progress:progress(97,f'{backed_up} gesichert, {skipped} übersprungen, {failed} fehlgeschlagen')
   except Exception as e: add_run(c.name,started,'error',str(e),str(target)); raise
   finally:
    if was_running and should_stop:
-    try:c.start()
+    try:
+     if progress:progress(99,'Container wird wieder gestartet …')
+     c.start()
     except Exception:pass
 
 def restore_backup(rel_path):
@@ -162,6 +203,19 @@ def home(request:Request):
   except Exception:pass
  backups.sort(key=lambda x:x['date'],reverse=True)
  return templates.TemplateResponse('index.html',{'request':request,'containers':containers,'runs':runs,'jobs':jobs,'backups':backups[:50],'stop_default':STOP_DEFAULT,'version':VERSION})
+@app.post('/api/backup/{container_id}')
+def api_backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None)):
+ auth(request)
+ try:return JSONResponse(start_backup_job(container_id,stop=='on'),status_code=202)
+ except Exception as exc:return JSONResponse({'error':str(exc)},status_code=400)
+
+@app.get('/api/jobs/{job_id}')
+def api_job(request:Request,job_id:str):
+ auth(request)
+ with job_lock:job=active_jobs.get(job_id)
+ if not job:raise HTTPException(404,'Job nicht gefunden')
+ return job.copy()
+
 @app.post('/backup/{container_id}')
 def backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None)): auth(request); backup_container(container_id,stop=='on'); return RedirectResponse('/',303)
 @app.post('/backup-all')
