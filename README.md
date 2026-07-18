@@ -6,7 +6,7 @@ ContBak discovers Docker containers and their named volumes and bind mounts. It 
 
 - GitHub: `Frazon11/ContBak`
 - Docker Hub: `frazon11/contbak`
-- Current version: `1.2.2`
+- Current version: `1.2.3`
 - License: MIT
 
 > [!WARNING]
@@ -79,7 +79,7 @@ When `STOP_CONTAINERS=true`, a running container is stopped before its mount dat
 
 ## Restore behavior
 
-Version 1.2.2 restores mount contents into the original container's currently configured mounts. The container must still exist. Restore removes the existing content of every selected mount before extracting its archive.
+Version 1.2.3 restores mount contents into the original container's currently configured mounts. The container must still exist. Restore removes the existing content of every selected mount before extracting its archive.
 
 Always keep another tested backup before using restore in production.
 
@@ -110,14 +110,14 @@ DOCKERHUB_TOKEN=<Docker Hub personal access token with Read & Write>
 Then create and push a tag:
 
 ```bash
-git tag -a v1.2.2 -m "ContBak 1.2.2"
-git push origin v1.2.2
+git tag -a v1.2.3 -m "ContBak 1.2.3"
+git push origin v1.2.3
 ```
 
 The workflow publishes:
 
 ```text
-frazon11/contbak:1.2.2
+frazon11/contbak:1.2.3
 frazon11/contbak:1.0
 frazon11/contbak:latest
 ```

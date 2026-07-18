@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-APP_NAME='ContBak'; VERSION='1.2.2'
+APP_NAME='ContBak'; VERSION='1.2.3'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -55,6 +55,22 @@ def host_backup_root():
  except Exception:pass
  raise RuntimeError('CONTBAK_BACKUP_PATH fehlt. Bitte den echten Hostpfad des /backups-Mounts setzen.')
 
+
+PSEUDO_FS_ROOTS = ('/proc', '/sys', '/dev')
+SPECIAL_MOUNT_SOURCES = ('/var/run/docker.sock', '/run/docker.sock')
+
+def pseudo_or_special_mount(m):
+ source=os.path.normpath(m.get('source') or '')
+ destination=os.path.normpath(m.get('destination') or '')
+ if source in SPECIAL_MOUNT_SOURCES:
+  return 'Docker-Socket wird nicht gesichert.'
+ for root in PSEUDO_FS_ROOTS:
+  if source == root or source.startswith(root + os.sep):
+   return f'Pseudo-Dateisystem {source} wird nicht gesichert.'
+  if destination == root or destination.startswith(root + os.sep):
+   return f'Pseudo-Dateisystem am Ziel {destination} wird nicht gesichert.'
+ return None
+
 def run_helper(volumes,command):
  client.images.pull(HELPER_IMAGE)
  out=client.containers.run(HELPER_IMAGE,['sh','-c',command],volumes=volumes,remove=True,stdout=True,stderr=True)
@@ -77,18 +93,27 @@ def backup_container(container_id,stop:Optional[bool]=None):
   try:
    if was_running and should_stop:c.stop(timeout=30)
    (target/'container-inspect.json').write_text(json.dumps(c.attrs,indent=2),encoding='utf-8')
+   backed_up=0; skipped=0; failed=0
    for i,m in enumerate(info['mounts']):
     archive=f"mount_{i:02d}_{safe(Path(m['destination']).name or 'root')}.tar.gz"; source=m['source']
-    result=run_helper(
-     {source:{'bind':'/source','mode':'ro'},str(host_backup_root()):{'bind':'/backup','mode':'rw'}},
-     f"if [ -d /source ]; then tar -C /source -czf /backup/{target_rel}/{archive} . && printf directory; "
-     f"elif [ -f /source ]; then tar -C / -czf /backup/{target_rel}/{archive} source && printf file; "
-     f"else printf special; fi"
-    ).strip()
-    if result=='directory':m['archive']=archive;m['archive_type']='directory'
-    elif result=='file':m['archive']=archive;m['archive_type']='file'
-    else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount ist weder Verzeichnis noch reguläre Datei (z. B. Docker-Socket).'
-   (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8'); prune(BACKUP_ROOT/safe(c.name)); add_run(c.name,started,'success',f"{len(info['mounts'])} Mount(s) gesichert",str(target))
+    skip_reason=pseudo_or_special_mount(m)
+    if skip_reason:
+     m['archive']=None;m['archive_type']='skipped';m['skipped_reason']=skip_reason;skipped+=1;continue
+    try:
+     result=run_helper(
+      {source:{'bind':'/source','mode':'ro'},str(host_backup_root()):{'bind':'/backup','mode':'rw'}},
+      f"if [ -d /source ]; then tar -C /source -czf /backup/{target_rel}/{archive} . && printf directory; "
+      f"elif [ -f /source ]; then tar -C / -czf /backup/{target_rel}/{archive} source && printf file; "
+      f"else printf special; fi"
+     ).strip()
+     if result=='directory':m['archive']=archive;m['archive_type']='directory';backed_up+=1
+     elif result=='file':m['archive']=archive;m['archive_type']='file';backed_up+=1
+     else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount ist weder Verzeichnis noch reguläre Datei.';skipped+=1
+    except Exception as mount_error:
+     m['archive']=None;m['archive_type']='error';m['skipped_reason']=str(mount_error);failed+=1
+   (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8'); prune(BACKUP_ROOT/safe(c.name))
+   status='success' if failed==0 else 'warning'
+   add_run(c.name,started,status,f"{backed_up} gesichert, {skipped} übersprungen, {failed} fehlgeschlagen",str(target))
   except Exception as e: add_run(c.name,started,'error',str(e),str(target)); raise
   finally:
    if was_running and should_stop:

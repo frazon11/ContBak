@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.3
+- Skip host pseudo filesystems such as `/proc`, `/sys`, and `/dev`.
+- Skip Docker sockets explicitly.
+- A single unreadable mount no longer aborts the complete backup; it is recorded in `manifest.json` and the run is marked as a warning.
+
 ## 1.2.2 - 2026-07-18
 
 - Handle directory and regular-file mounts separately.
