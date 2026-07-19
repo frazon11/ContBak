@@ -42,3 +42,11 @@ All notable changes are documented here.
 - Health endpoint and Docker health check.
 - Multi-architecture Docker Hub publishing for amd64 and arm64.
 - Synology and Portainer compose example.
+
+## 1.4.0
+- Download single backup sets as portable `.contbak` archives.
+- Export multiple selected backups in one archive.
+- Upload and import ContBak archives from the WebUI.
+- Verify every imported file using SHA256 checksums.
+- Handle duplicate imports by rename, skip, or replace.
+- Show calculated backup size in the backup browser.

@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 LABEL org.opencontainers.image.title="ContBak" \
       org.opencontainers.image.description="Web-based backup and restore manager for Docker containers, volumes and bind mounts" \
-      org.opencontainers.image.version="1.3.0" \
+      org.opencontainers.image.version="1.4.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Frazon11/ContBak" \
       org.opencontainers.image.url="https://github.com/Frazon11/ContBak"

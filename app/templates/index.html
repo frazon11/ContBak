@@ -185,21 +185,35 @@
         <div class="section-heading">
           <div>
             <h2>Backups</h2>
-            <p>Vorhandene Sicherungen prüfen und wiederherstellen</p>
+            <p>Wiederherstellen, herunterladen, exportieren und importieren</p>
           </div>
         </div>
+        <section class="import-card">
+          <div><h3>Backup importieren</h3><p>.contbak, .tar.gz oder .tgz hochladen. Prüfsummen werden vor dem Import kontrolliert.</p></div>
+          <form id="import-form" action="/backup-import" method="post" enctype="multipart/form-data">
+            <input id="import-file" type="file" name="file" accept=".contbak,.tar.gz,.tgz,.tar" required>
+            <select name="duplicate"><option value="rename">Duplikat umbenennen</option><option value="skip">Duplikat überspringen</option><option value="replace">Duplikat ersetzen</option></select>
+            <button class="btn btn-primary" type="submit">Upload & Import</button>
+          </form>
+          <div id="import-status" class="import-status"></div>
+        </section>
+        <form method="post" action="/backup-export" id="export-form"></form>
+        <div class="bulk-actions"><button class="btn btn-secondary" type="submit" form="export-form">Ausgewählte exportieren</button><span>Exportformat: .contbak mit SHA256-Prüfsummen</span></div>
         <div class="table-card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Container</th><th>Zeitpunkt</th><th>Mounts</th><th>Pfad</th><th class="right">Aktion</th></tr></thead>
+              <thead><tr><th><input type="checkbox" id="select-all-backups" title="Alle auswählen"></th><th>Container</th><th>Zeitpunkt</th><th>Größe</th><th>Mounts</th><th>Pfad</th><th class="right">Aktion</th></tr></thead>
               <tbody>
               {% for b in backups %}
               <tr>
+                <td><input class="backup-select" type="checkbox" name="paths" value="{{ b.path }}" form="export-form"></td>
                 <td><strong>{{ b.container }}</strong></td>
                 <td>{{ b.date }}</td>
+                <td>{{ '%.1f'|format(b.size / 1048576) }} MB</td>
                 <td><span class="pill">{{ b.mounts }}</span></td>
                 <td><code>{{ b.path }}</code></td>
-                <td class="right">
+                <td class="right action-group">
+                  <a class="btn btn-secondary btn-small" href="/backup-download?path={{ b.path|urlencode }}">Download</a>
                   <form method="post" action="/restore" onsubmit="return confirm('Vorhandene Daten dieses Containers wirklich überschreiben?')">
                     <input type="hidden" name="path" value="{{ b.path }}">
                     <button class="btn btn-danger btn-small" type="submit">Restore</button>
@@ -207,7 +221,7 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="5"><div class="empty-state">Noch keine Backups vorhanden.</div></td></tr>
+              <tr><td colspan="7"><div class="empty-state">Noch keine Backups vorhanden.</div></td></tr>
               {% endfor %}
               </tbody>
             </table>

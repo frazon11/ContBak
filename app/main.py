@@ -1,15 +1,16 @@
-import base64, json, os, re, secrets, sqlite3, threading, uuid
+import base64, hashlib, json, os, re, secrets, shutil, sqlite3, tarfile, tempfile, threading, uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import docker
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 
-APP_NAME='ContBak'; VERSION='1.3.0'
+APP_NAME='ContBak'; VERSION='1.4.0'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -161,10 +162,81 @@ def backup_container(container_id,stop:Optional[bool]=None,progress=None):
      c.start()
     except Exception:pass
 
+
+
+def backup_path(rel_path: str) -> Path:
+ target=(BACKUP_ROOT/rel_path).resolve()
+ root=BACKUP_ROOT.resolve()
+ if target != root and root not in target.parents:
+  raise ValueError('Ungültiger Backup-Pfad')
+ if not target.is_dir() or not (target/'manifest.json').is_file():
+  raise ValueError('Backup nicht gefunden oder unvollständig')
+ return target
+
+def sha256_file(path: Path) -> str:
+ h=hashlib.sha256()
+ with path.open('rb') as f:
+  for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+ return h.hexdigest()
+
+def make_export(paths):
+ valid=[backup_path(p) for p in paths]
+ fd,tmp=tempfile.mkstemp(prefix='contbak-export-',suffix='.contbak');os.close(fd);out=Path(tmp)
+ export_manifest={'format':'contbak-export','format_version':1,'created':datetime.now().isoformat(timespec='seconds'),'application_version':VERSION,'backups':[]}
+ with tarfile.open(out,'w:gz') as tf:
+  for target in valid:
+   rel=target.relative_to(BACKUP_ROOT)
+   files=[]
+   for file in sorted(target.rglob('*')):
+    if file.is_file():files.append({'path':str(file.relative_to(target)),'size':file.stat().st_size,'sha256':sha256_file(file)})
+   export_manifest['backups'].append({'path':str(rel),'files':files})
+   tf.add(target,arcname=f'backups/{rel}',recursive=True)
+  payload=json.dumps(export_manifest,indent=2).encode()
+  info=tarfile.TarInfo('export-manifest.json');info.size=len(payload);info.mtime=int(datetime.now().timestamp())
+  import io;tf.addfile(info,io.BytesIO(payload))
+ return out
+
+def safe_extract(tf: tarfile.TarFile, destination: Path):
+ root=destination.resolve()
+ for member in tf.getmembers():
+  target=(destination/member.name).resolve()
+  if root != target and root not in target.parents:raise ValueError('Unsicherer Pfad im Importarchiv')
+  if member.issym() or member.islnk():raise ValueError('Symbolische Links sind im Import nicht erlaubt')
+ tf.extractall(destination)
+
+def import_export(upload_path: Path, duplicate: str):
+ with tempfile.TemporaryDirectory(prefix='contbak-import-') as td:
+  work=Path(td)
+  try:
+   with tarfile.open(upload_path,'r:*') as tf:safe_extract(tf,work)
+  except tarfile.TarError as exc:raise ValueError(f'Ungültiges ContBak-Archiv: {exc}')
+  manifest_file=work/'export-manifest.json'
+  if not manifest_file.is_file():raise ValueError('export-manifest.json fehlt')
+  meta=json.loads(manifest_file.read_text(encoding='utf-8'))
+  if meta.get('format')!='contbak-export' or meta.get('format_version')!=1:raise ValueError('Nicht unterstütztes Exportformat')
+  results=[]
+  for item in meta.get('backups',[]):
+   rel=Path(item.get('path',''))
+   source=(work/'backups'/rel).resolve(); base=(work/'backups').resolve()
+   if base not in source.parents or not source.is_dir():raise ValueError(f'Backupinhalt fehlt: {rel}')
+   for f in item.get('files',[]):
+    fp=source/f['path']
+    if not fp.is_file() or fp.stat().st_size!=f['size'] or sha256_file(fp)!=f['sha256']:raise ValueError(f'Prüfsumme fehlerhaft: {rel}/{f["path"]}')
+   target=BACKUP_ROOT/rel
+   action='imported'
+   if target.exists():
+    if duplicate=='skip':results.append({'path':str(rel),'status':'skipped'});continue
+    if duplicate=='replace':shutil.rmtree(target)
+    else:
+     base_target=target; n=1
+     while target.exists():target=Path(str(base_target)+f'_imported_{n}');n+=1
+     action='renamed'
+   target.parent.mkdir(parents=True,exist_ok=True);shutil.copytree(source,target)
+   results.append({'path':str(target.relative_to(BACKUP_ROOT)),'status':action})
+  return results
 def restore_backup(rel_path):
  with lock:
-  target=(BACKUP_ROOT/rel_path).resolve()
-  if BACKUP_ROOT.resolve() not in target.parents or not target.exists(): raise ValueError('Ungültiger Backup-Pfad')
+  target=backup_path(rel_path)
   manifest=json.loads((target/'manifest.json').read_text(encoding='utf-8')); c=client.containers.get(manifest['id']); was_running=c.status=='running'
   if was_running:c.stop(timeout=30)
   try:
@@ -199,7 +271,7 @@ def home(request:Request):
  backups=[]
  for mf in BACKUP_ROOT.glob('*/*/manifest.json'):
   try:
-   data=json.loads(mf.read_text()); backups.append({'container':data['name'],'path':str(mf.parent.relative_to(BACKUP_ROOT)),'date':mf.parent.name,'mounts':len(data.get('mounts',[]))})
+   data=json.loads(mf.read_text()); size=sum(f.stat().st_size for f in mf.parent.rglob('*') if f.is_file()); backups.append({'container':data['name'],'path':str(mf.parent.relative_to(BACKUP_ROOT)),'date':mf.parent.name,'mounts':len(data.get('mounts',[])),'size':size})
   except Exception:pass
  backups.sort(key=lambda x:x['date'],reverse=True)
  return templates.TemplateResponse('index.html',{'request':request,'containers':containers,'runs':runs,'jobs':jobs,'backups':backups[:50],'stop_default':STOP_DEFAULT,'version':VERSION})
@@ -228,6 +300,32 @@ def backup_all(request:Request):
  return RedirectResponse('/',303)
 @app.post('/restore')
 def restore(request:Request,path:str=Form(...)): auth(request); restore_backup(path); return RedirectResponse('/',303)
+@app.get('/backup-download')
+def backup_download(request:Request,path:str):
+ auth(request)
+ export=make_export([path]); name=safe(path.replace('/','_'))+'.contbak'
+ return FileResponse(export,media_type='application/gzip',filename=name,background=BackgroundTask(export.unlink,missing_ok=True))
+
+@app.post('/backup-export')
+def backup_export(request:Request,paths:list[str]=Form(...)):
+ auth(request);export=make_export(paths)
+ return FileResponse(export,media_type='application/gzip',filename=f'ContBak-Export-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.contbak',background=BackgroundTask(export.unlink,missing_ok=True))
+
+@app.post('/backup-import')
+async def backup_import(request:Request,file:UploadFile=File(...),duplicate:str=Form('rename')):
+ auth(request)
+ if duplicate not in ('skip','rename','replace'):raise HTTPException(400,'Ungültige Duplikatoption')
+ suffix=Path(file.filename or '').suffix.lower()
+ if suffix not in ('.contbak','.gz','.tgz','.tar'):raise HTTPException(400,'Bitte eine .contbak-, .tar.gz- oder .tgz-Datei auswählen')
+ fd,tmp=tempfile.mkstemp(prefix='contbak-upload-');os.close(fd);tmp_path=Path(tmp)
+ try:
+  with tmp_path.open('wb') as out:
+   while chunk:=await file.read(1024*1024):out.write(chunk)
+  results=import_export(tmp_path,duplicate)
+  return JSONResponse({'status':'success','results':results})
+ except Exception as exc:return JSONResponse({'status':'error','error':str(exc)},status_code=400)
+ finally:tmp_path.unlink(missing_ok=True)
+
 @app.post('/schedule/{container_id}')
 def schedule(request:Request,container_id:str,time:str=Form(...)):
  auth(request)

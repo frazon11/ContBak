@@ -143,3 +143,10 @@
     });
   });
 })();
+
+const selectAllBackups=document.getElementById('select-all-backups');
+if(selectAllBackups)selectAllBackups.addEventListener('change',()=>document.querySelectorAll('.backup-select').forEach(x=>x.checked=selectAllBackups.checked));
+const exportForm=document.getElementById('export-form');
+if(exportForm)exportForm.addEventListener('submit',e=>{if(!document.querySelector('.backup-select:checked')){e.preventDefault();showToast('Bitte mindestens ein Backup auswählen.','error')}});
+const importForm=document.getElementById('import-form');
+if(importForm)importForm.addEventListener('submit',async e=>{e.preventDefault();const btn=importForm.querySelector('button');const status=document.getElementById('import-status');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Import läuft …';status.textContent='Datei wird hochgeladen und geprüft …';try{const r=await fetch(importForm.action,{method:'POST',body:new FormData(importForm)});const data=await r.json();if(!r.ok)throw new Error(data.error||'Import fehlgeschlagen');status.textContent=`Import abgeschlossen: ${data.results.length} Backup(s) verarbeitet.`;showToast('Backup erfolgreich importiert.','success');setTimeout(()=>location.reload(),900)}catch(err){status.textContent=err.message;showToast(err.message,'error')}finally{btn.disabled=false;btn.textContent='Upload & Import'}});
