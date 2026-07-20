@@ -43,7 +43,7 @@ All notable changes are documented here.
 - Multi-architecture Docker Hub publishing for amd64 and arm64.
 - Synology and Portainer compose example.
 
-## 1.4.0
+## 1.4.1
 - Download single backup sets as portable `.contbak` archives.
 - Export multiple selected backups in one archive.
 - Upload and import ContBak archives from the WebUI.

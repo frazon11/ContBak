@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 
-APP_NAME='ContBak'; VERSION='1.4.0'
+APP_NAME='ContBak'; VERSION='1.4.1'
 BACKUP_ROOT=Path(os.getenv('BACKUP_ROOT','/backups')); HOST_BACKUP_ROOT=os.getenv('CONTBAK_BACKUP_PATH'); DATA_ROOT=Path('/data')
 HELPER_IMAGE=os.getenv('HELPER_IMAGE','alpine:3.22')
 STOP_DEFAULT=os.getenv('STOP_CONTAINERS','true').lower()=='true'
@@ -40,7 +40,7 @@ def job_progress(job_id,progress,message,status='running'):
 def run_backup_job(job_id,container_id,stop):
  try:
   backup_container(container_id,stop,lambda p,m:job_progress(job_id,p,m))
-  job_progress(job_id,100,'Backup erfolgreich abgeschlossen.','success')
+  job_progress(job_id,100,'Backup completed successfully.','success')
  except Exception as exc:
   update_job(job_id,status='error',message=str(exc),error=str(exc),progress=100)
 
@@ -48,7 +48,7 @@ def start_backup_job(container_id,stop):
  c=client.containers.get(container_id)
  job_id=uuid.uuid4().hex
  with job_lock:
-  active_jobs[job_id]={'id':job_id,'container_id':container_id,'container_name':c.name,'status':'queued','progress':0,'message':'Backup wird vorbereitet …','error':None,'log':[{'time':datetime.now().strftime('%H:%M:%S'),'message':'Backup angefordert.'}]}
+  active_jobs[job_id]={'id':job_id,'container_id':container_id,'container_name':c.name,'status':'queued','progress':0,'message':'Preparing backup…','error':None,'log':[{'time':datetime.now().strftime('%H:%M:%S'),'message':'Backup requested.'}]}
  threading.Thread(target=run_backup_job,args=(job_id,container_id,stop),daemon=True,name=f'backup-{job_id[:8]}').start()
  return active_jobs[job_id].copy()
 
@@ -83,7 +83,7 @@ def host_backup_root():
   for m in current.attrs.get('Mounts',[]):
    if m.get('Destination')==str(BACKUP_ROOT) and m.get('Source'):return Path(m['Source'])
  except Exception:pass
- raise RuntimeError('CONTBAK_BACKUP_PATH fehlt. Bitte den echten Hostpfad des /backups-Mounts setzen.')
+ raise RuntimeError('CONTBAK_BACKUP_PATH is missing. Set the real host path of the /backups mount.')
 
 
 PSEUDO_FS_ROOTS = ('/proc', '/sys', '/dev')
@@ -93,12 +93,12 @@ def pseudo_or_special_mount(m):
  source=os.path.normpath(m.get('source') or '')
  destination=os.path.normpath(m.get('destination') or '')
  if source in SPECIAL_MOUNT_SOURCES:
-  return 'Docker-Socket wird nicht gesichert.'
+  return 'Docker socket is not backed up.'
  for root in PSEUDO_FS_ROOTS:
   if source == root or source.startswith(root + os.sep):
-   return f'Pseudo-Dateisystem {source} wird nicht gesichert.'
+   return f'Pseudo filesystem {source} is not backed up.'
   if destination == root or destination.startswith(root + os.sep):
-   return f'Pseudo-Dateisystem am Ziel {destination} wird nicht gesichert.'
+   return f'Pseudo filesystem am Ziel {destination} is not backed up.'
  return None
 
 def run_helper(volumes,command):
@@ -119,18 +119,18 @@ def backup_container(container_id,stop:Optional[bool]=None,progress=None):
  with lock:
   started=datetime.now().isoformat(timespec='seconds'); c=client.containers.get(container_id); info=container_info(c)
   was_running=c.status=='running'; should_stop=STOP_DEFAULT if stop is None else stop
-  if progress:progress(3,f'Container {c.name} wird vorbereitet …')
+  if progress:progress(3,f'Preparing container {c.name}…')
   stamp=datetime.now().strftime('%Y-%m-%d_%H-%M-%S'); target_rel=f'{safe(c.name)}/{stamp}'; target=BACKUP_ROOT/target_rel; target.mkdir(parents=True,exist_ok=True)
   try:
    if was_running and should_stop:
-    if progress:progress(8,'Container wird gestoppt …')
+    if progress:progress(8,'Stopping container…')
     c.stop(timeout=30)
-   if progress:progress(12,'Container-Metadaten werden gespeichert …')
+   if progress:progress(12,'Saving container metadata…')
    (target/'container-inspect.json').write_text(json.dumps(c.attrs,indent=2),encoding='utf-8')
    backed_up=0; skipped=0; failed=0
    mounts=info['mounts']; total=max(1,len(mounts))
    for i,m in enumerate(mounts):
-    if progress:progress(15 + int((i/total)*70),f"Mount {i+1}/{len(mounts)} wird geprüft: {m.get('destination','')}")
+    if progress:progress(15 + int((i/total)*70),f"Mount {i+1}/{len(mounts)} checking: {m.get('destination','')}")
     archive=f"mount_{i:02d}_{safe(Path(m['destination']).name or 'root')}.tar.gz"; source=m['source']
     skip_reason=pseudo_or_special_mount(m)
     if skip_reason:
@@ -144,21 +144,21 @@ def backup_container(container_id,stop:Optional[bool]=None,progress=None):
      ).strip()
      if result=='directory':m['archive']=archive;m['archive_type']='directory';backed_up+=1
      elif result=='file':m['archive']=archive;m['archive_type']='file';backed_up+=1
-     else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount ist weder Verzeichnis noch reguläre Datei.';skipped+=1
+     else:m['archive']=None;m['archive_type']='special';m['skipped_reason']='Mount is neither a directory nor a regular file.';skipped+=1
     except Exception as mount_error:
      m['archive']=None;m['archive_type']='error';m['skipped_reason']=str(mount_error);failed+=1
-   if progress:progress(88,'Manifest wird gespeichert …')
+   if progress:progress(88,'Saving manifest…')
    (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
-   if progress:progress(93,'Alte Backups werden bereinigt …')
+   if progress:progress(93,'Pruning old backups…')
    prune(BACKUP_ROOT/safe(c.name))
    status='success' if failed==0 else 'warning'
-   add_run(c.name,started,status,f"{backed_up} gesichert, {skipped} übersprungen, {failed} fehlgeschlagen",str(target))
-   if progress:progress(97,f'{backed_up} gesichert, {skipped} übersprungen, {failed} fehlgeschlagen')
+   add_run(c.name,started,status,f"{backed_up} backed up, {skipped} skipped, {failed} failed",str(target))
+   if progress:progress(97,f'{backed_up} backed up, {skipped} skipped, {failed} failed')
   except Exception as e: add_run(c.name,started,'error',str(e),str(target)); raise
   finally:
    if was_running and should_stop:
     try:
-     if progress:progress(99,'Container wird wieder gestartet …')
+     if progress:progress(99,'Restarting container…')
      c.start()
     except Exception:pass
 
@@ -168,9 +168,9 @@ def backup_path(rel_path: str) -> Path:
  target=(BACKUP_ROOT/rel_path).resolve()
  root=BACKUP_ROOT.resolve()
  if target != root and root not in target.parents:
-  raise ValueError('Ungültiger Backup-Pfad')
+  raise ValueError('Invalid backup path')
  if not target.is_dir() or not (target/'manifest.json').is_file():
-  raise ValueError('Backup nicht gefunden oder unvollständig')
+  raise ValueError('Backup not found or incomplete')
  return target
 
 def sha256_file(path: Path) -> str:
@@ -200,8 +200,8 @@ def safe_extract(tf: tarfile.TarFile, destination: Path):
  root=destination.resolve()
  for member in tf.getmembers():
   target=(destination/member.name).resolve()
-  if root != target and root not in target.parents:raise ValueError('Unsicherer Pfad im Importarchiv')
-  if member.issym() or member.islnk():raise ValueError('Symbolische Links sind im Import nicht erlaubt')
+  if root != target and root not in target.parents:raise ValueError('Unsafe path in import archive')
+  if member.issym() or member.islnk():raise ValueError('Symbolic links are not allowed in imports')
  tf.extractall(destination)
 
 def import_export(upload_path: Path, duplicate: str):
@@ -209,19 +209,19 @@ def import_export(upload_path: Path, duplicate: str):
   work=Path(td)
   try:
    with tarfile.open(upload_path,'r:*') as tf:safe_extract(tf,work)
-  except tarfile.TarError as exc:raise ValueError(f'Ungültiges ContBak-Archiv: {exc}')
+  except tarfile.TarError as exc:raise ValueError(f'Invalid ContBak archive: {exc}')
   manifest_file=work/'export-manifest.json'
-  if not manifest_file.is_file():raise ValueError('export-manifest.json fehlt')
+  if not manifest_file.is_file():raise ValueError('export-manifest.json is missing')
   meta=json.loads(manifest_file.read_text(encoding='utf-8'))
-  if meta.get('format')!='contbak-export' or meta.get('format_version')!=1:raise ValueError('Nicht unterstütztes Exportformat')
+  if meta.get('format')!='contbak-export' or meta.get('format_version')!=1:raise ValueError('Unsupported export format')
   results=[]
   for item in meta.get('backups',[]):
    rel=Path(item.get('path',''))
    source=(work/'backups'/rel).resolve(); base=(work/'backups').resolve()
-   if base not in source.parents or not source.is_dir():raise ValueError(f'Backupinhalt fehlt: {rel}')
+   if base not in source.parents or not source.is_dir():raise ValueError(f'Backup content missing: {rel}')
    for f in item.get('files',[]):
     fp=source/f['path']
-    if not fp.is_file() or fp.stat().st_size!=f['size'] or sha256_file(fp)!=f['sha256']:raise ValueError(f'Prüfsumme fehlerhaft: {rel}/{f["path"]}')
+    if not fp.is_file() or fp.stat().st_size!=f['size'] or sha256_file(fp)!=f['sha256']:raise ValueError(f'Checksum mismatch: {rel}/{f["path"]}')
    target=BACKUP_ROOT/rel
    action='imported'
    if target.exists():

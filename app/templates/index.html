@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -18,17 +18,17 @@
       </div>
     </div>
 
-    <nav class="nav" aria-label="Hauptnavigation">
-      <button class="nav-item active" data-tab="dashboard">Übersicht</button>
+    <nav class="nav" aria-label="Main navigation">
+      <button class="nav-item active" data-tab="dashboard">Dashboard</button>
       <button class="nav-item" data-tab="containers">Container</button>
       <button class="nav-item" data-tab="backups">Backups</button>
-      <button class="nav-item" data-tab="schedules">Zeitpläne</button>
-      <button class="nav-item" data-tab="logs">Protokoll</button>
+      <button class="nav-item" data-tab="schedules">Schedules</button>
+      <button class="nav-item" data-tab="logs">Logs</button>
     </nav>
 
     <div class="sidebar-note">
       <span class="dot dot-green"></span>
-      Docker-Verbindung aktiv
+      Docker connection active
     </div>
   </aside>
 
@@ -36,11 +36,19 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Backup & Restore</p>
-        <h1>Docker-Sicherung</h1>
+        <h1>Docker Backup</h1>
       </div>
-      <form method="post" action="/backup-all" onsubmit="return confirm('Alle Container jetzt sichern?')">
-        <button class="btn btn-primary" type="submit">Alle sichern</button>
+      <div class="topbar-actions">
+        <label class="language-picker" for="language-select">Language
+          <select id="language-select" aria-label="Language">
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </label>
+      <form method="post" action="/backup-all" onsubmit="return confirm('Back up all containers now?')">
+        <button class="btn btn-primary" type="submit">Back up all</button>
       </form>
+      </div>
     </header>
 
     <main>
@@ -49,22 +57,22 @@
           <article class="stat-card">
             <span>Container</span>
             <strong>{{ containers|length }}</strong>
-            <small>{{ containers|selectattr('status','equalto','running')|list|length }} aktiv</small>
+            <small>{{ containers|selectattr('status','equalto','running')|list|length }} active</small>
           </article>
           <article class="stat-card">
             <span>Backups</span>
             <strong>{{ backups|length }}</strong>
-            <small>bis zu 50 angezeigt</small>
+            <small>up to 50 displayed</small>
           </article>
           <article class="stat-card">
-            <span>Zeitpläne</span>
+            <span>Schedules</span>
             <strong>{{ jobs|length }}</strong>
-            <small>tägliche Aufgaben</small>
+            <small>daily jobs</small>
           </article>
           <article class="stat-card">
-            <span>Letzter Lauf</span>
+            <span>Last run</span>
             <strong class="stat-text">{% if runs %}{{ runs[0].status }}{% else %}–{% endif %}</strong>
-            <small>{% if runs %}{{ runs[0].started }}{% else %}noch kein Lauf{% endif %}</small>
+            <small>{% if runs %}{{ runs[0].started }}{% else %}no run yet{% endif %}</small>
           </article>
         </div>
 
@@ -72,10 +80,10 @@
           <section class="panel panel-wide">
             <div class="panel-header">
               <div>
-                <h2>Containerstatus</h2>
-                <p>Aktueller Zustand der Docker-Umgebung</p>
+                <h2>Container status</h2>
+                <p>Current Docker environment status</p>
               </div>
-              <button class="text-button" data-open-tab="containers">Alle anzeigen</button>
+              <button class="text-button" data-open-tab="containers">Show all</button>
             </div>
             <div class="compact-list">
               {% for c in containers[:8] %}
@@ -89,7 +97,7 @@
                 <span class="mount-count">{{ c.mounts|length }} Mounts</span>
               </div>
               {% else %}
-              <div class="empty-state">Keine Container gefunden.</div>
+              <div class="empty-state">No containers found.</div>
               {% endfor %}
             </div>
           </section>
@@ -97,8 +105,8 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h2>Letzte Sicherungen</h2>
-                <p>Neueste Backup-Sätze</p>
+                <h2>Latest backups</h2>
+                <p>Most recent backup sets</p>
               </div>
             </div>
             <div class="timeline">
@@ -111,7 +119,7 @@
                 </div>
               </div>
               {% else %}
-              <div class="empty-state">Noch keine Backups vorhanden.</div>
+              <div class="empty-state">No backups available yet.</div>
               {% endfor %}
             </div>
           </section>
@@ -122,9 +130,9 @@
         <div class="section-heading">
           <div>
             <h2>Container</h2>
-            <p>Einzelne Dienste sichern und Zeitpläne verwalten</p>
+            <p>Einzelne Dienste sichern und Schedules verwalten</p>
           </div>
-          <input id="container-search" class="search" type="search" placeholder="Container suchen …">
+          <input id="container-search" class="search" type="search" placeholder="Search containers…">
         </div>
 
         <div class="container-grid" id="container-grid">
@@ -147,7 +155,7 @@
             </div>
 
             <details class="mount-details">
-              <summary>Mounts anzeigen</summary>
+              <summary>Show mounts</summary>
               <div class="mount-list">
                 {% for m in c.mounts %}
                 <div class="mount-row">
@@ -158,7 +166,7 @@
                   </div>
                 </div>
                 {% else %}
-                <div class="empty-inline">Keine persistenten Mounts</div>
+                <div class="empty-inline">No persistent mounts</div>
                 {% endfor %}
               </div>
             </details>
@@ -167,13 +175,13 @@
               <form method="post" action="/backup/{{ c.id }}" class="backup-form">
                 <label class="switch-row">
                   <input type="checkbox" name="stop" {% if stop_default %}checked{% endif %}>
-                  <span>Container stoppen</span>
+                  <span>Stop container</span>
                 </label>
-                <button class="btn btn-primary btn-block" type="submit">Jetzt sichern</button>
+                <button class="btn btn-primary btn-block" type="submit">Back up now</button>
               </form>
               <form method="post" action="/schedule/{{ c.id }}" class="schedule-form">
                 <input type="time" name="time" value="03:00" required>
-                <button class="btn btn-secondary" type="submit">Zeitplan speichern</button>
+                <button class="btn btn-secondary" type="submit">Save schedule</button>
               </form>
             </div>
           </article>
@@ -185,24 +193,24 @@
         <div class="section-heading">
           <div>
             <h2>Backups</h2>
-            <p>Wiederherstellen, herunterladen, exportieren und importieren</p>
+            <p>Restore, download, export and import</p>
           </div>
         </div>
         <section class="import-card">
-          <div><h3>Backup importieren</h3><p>.contbak, .tar.gz oder .tgz hochladen. Prüfsummen werden vor dem Import kontrolliert.</p></div>
+          <div><h3>Import backup</h3><p>.contbak, .tar.gz or .tgz upload. Checksums are verified before import.</p></div>
           <form id="import-form" action="/backup-import" method="post" enctype="multipart/form-data">
             <input id="import-file" type="file" name="file" accept=".contbak,.tar.gz,.tgz,.tar" required>
-            <select name="duplicate"><option value="rename">Duplikat umbenennen</option><option value="skip">Duplikat überspringen</option><option value="replace">Duplikat ersetzen</option></select>
-            <button class="btn btn-primary" type="submit">Upload & Import</button>
+            <select name="duplicate"><option value="rename">Rename duplicate</option><option value="skip">Skip duplicate</option><option value="replace">Replace duplicate</option></select>
+            <button class="btn btn-primary" type="submit">Upload & import</button>
           </form>
           <div id="import-status" class="import-status"></div>
         </section>
         <form method="post" action="/backup-export" id="export-form"></form>
-        <div class="bulk-actions"><button class="btn btn-secondary" type="submit" form="export-form">Ausgewählte exportieren</button><span>Exportformat: .contbak mit SHA256-Prüfsummen</span></div>
+        <div class="bulk-actions"><button class="btn btn-secondary" type="submit" form="export-form">Export selected</button><span>Export format: .contbak with SHA256 checksums</span></div>
         <div class="table-card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th><input type="checkbox" id="select-all-backups" title="Alle auswählen"></th><th>Container</th><th>Zeitpunkt</th><th>Größe</th><th>Mounts</th><th>Pfad</th><th class="right">Aktion</th></tr></thead>
+              <thead><tr><th><input type="checkbox" id="select-all-backups" title="Select all"></th><th>Container</th><th>Date/time</th><th>Size</th><th>Mounts</th><th>Path</th><th class="right">Action</th></tr></thead>
               <tbody>
               {% for b in backups %}
               <tr>
@@ -214,14 +222,14 @@
                 <td><code>{{ b.path }}</code></td>
                 <td class="right action-group">
                   <a class="btn btn-secondary btn-small" href="/backup-download?path={{ b.path|urlencode }}">Download</a>
-                  <form method="post" action="/restore" onsubmit="return confirm('Vorhandene Daten dieses Containers wirklich überschreiben?')">
+                  <form method="post" action="/restore" onsubmit="return confirm('Really overwrite existing data for this container?')">
                     <input type="hidden" name="path" value="{{ b.path }}">
                     <button class="btn btn-danger btn-small" type="submit">Restore</button>
                   </form>
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="7"><div class="empty-state">Noch keine Backups vorhanden.</div></td></tr>
+              <tr><td colspan="7"><div class="empty-state">No backups available yet.</div></td></tr>
               {% endfor %}
               </tbody>
             </table>
@@ -232,24 +240,24 @@
       <section class="tab-panel" id="tab-schedules">
         <div class="section-heading">
           <div>
-            <h2>Zeitpläne</h2>
-            <p>Automatische tägliche Sicherungen</p>
+            <h2>Schedules</h2>
+            <p>Automatic daily backups</p>
           </div>
         </div>
         <div class="table-card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Container</th><th>Ausführung</th><th>Status</th><th class="right">Aktion</th></tr></thead>
+              <thead><tr><th>Container</th><th>Execution</th><th>Status</th><th class="right">Action</th></tr></thead>
               <tbody>
               {% for j in jobs %}
               <tr>
                 <td><strong>{{ j.container_name }}</strong></td>
-                <td>Täglich um {{ j.schedule }} Uhr</td>
+                <td>Daily at {{ j.schedule }}</td>
                 <td><span class="badge badge-running">aktiv</span></td>
-                <td class="right"><form method="post" action="/schedule-delete/{{ j.id }}"><button class="btn btn-secondary btn-small">Löschen</button></form></td>
+                <td class="right"><form method="post" action="/schedule-delete/{{ j.id }}"><button class="btn btn-secondary btn-small">Delete</button></form></td>
               </tr>
               {% else %}
-              <tr><td colspan="4"><div class="empty-state">Noch keine Zeitpläne eingerichtet.</div></td></tr>
+              <tr><td colspan="4"><div class="empty-state">Noch keine Schedules eingerichtet.</div></td></tr>
               {% endfor %}
               </tbody>
             </table>
@@ -260,14 +268,14 @@
       <section class="tab-panel" id="tab-logs">
         <div class="section-heading">
           <div>
-            <h2>Protokoll</h2>
-            <p>Ergebnisse der letzten Backup- und Restore-Vorgänge</p>
+            <h2>Logs</h2>
+            <p>Results of recent backup and restore operations</p>
           </div>
         </div>
         <div class="table-card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Start</th><th>Container</th><th>Status</th><th>Meldung</th></tr></thead>
+              <thead><tr><th>Start</th><th>Container</th><th>Status</th><th>Message</th></tr></thead>
               <tbody>
               {% for r in runs %}
               <tr>
@@ -277,7 +285,7 @@
                 <td>{{ r.message }}</td>
               </tr>
               {% else %}
-              <tr><td colspan="4"><div class="empty-state">Noch keine Läufe protokolliert.</div></td></tr>
+              <tr><td colspan="4"><div class="empty-state">No runs logged yet.</div></td></tr>
               {% endfor %}
               </tbody>
             </table>

@@ -21,7 +21,7 @@ def test_version_and_host_backup_path():
     main = (ROOT/'app/main.py').read_text(encoding='utf-8')
     template = (ROOT/'app/templates/index.html').read_text(encoding='utf-8')
     compose = (ROOT/'docker-compose.yml').read_text(encoding='utf-8')
-    assert "VERSION='1.4.0'" in main
+    assert "VERSION='1.4.1'" in main
     assert 'HOST_BACKUP_ROOT' in main
     assert "str(host_backup_root())" in main
     assert 'Version {{ version }}' in template
