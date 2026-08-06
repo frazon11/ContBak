@@ -7,11 +7,11 @@
 
 **Container Backup Manager with a web interface.**
 
-ContBak discovers Docker containers and their named volumes and bind mounts. It supports individual and bulk backups, restore, schedules, retention, progress reporting, portable `.contbak` import/export, and English/German user interfaces.
+ContBak discovers Docker containers and their named volumes and bind mounts. It supports individual and bulk backups, full single-container recreation, data restore, schedules, retention, progress reporting, portable `.contbak` import/export, and English/German user interfaces.
 
 - GitHub: `Frazon11/ContBak`
 - Docker Hub: `frazon11/contbak`
-- Current version: `1.5.0`
+- Current version: `1.6.0`
 - License: MIT
 
 > [!WARNING]
@@ -25,7 +25,10 @@ ContBak discovers Docker containers and their named volumes and bind mounts. It 
 - Per-container and backup-all actions
 - Optional stop/start for filesystem consistency
 - Live backup progress and logs
-- Restore through the web interface
+- Restore data into an existing container
+- Recreate a missing single container from saved Docker metadata
+- Restore conflict handling: abort, replace, or use a new name
+- Image pull, volume creation, bind-path preparation, ports, environment, labels, restart policy, devices, and network reconstruction
 - Daily schedules and configurable retention
 - Download, multi-export, upload and import of `.contbak` archives
 - SHA256 verification during import
@@ -73,7 +76,19 @@ http://DOCKER-HOST:8787
 /volume1/docker/contbak/backups
 ```
 
-Each backup is stored below `/backups/<container>/<timestamp>/` and contains metadata plus one archive per supported persistent mount.
+Each backup is stored below `/backups/<container>/<timestamp>/` and contains `manifest.json`, `container-inspect.json`, and one archive per supported persistent mount.
+
+## Restore modes
+
+The restore dialog supports:
+
+- **Automatic**: use the original/existing container when found, otherwise recreate it.
+- **Existing container**: restore mount data into a selected existing container.
+- **Recreate container**: create a missing container from `container-inspect.json`, restore its data, then start it.
+
+For name conflicts, ContBak can abort, replace the existing container, or create the restored container under a new name.
+
+A recreated container uses reliable settings from Docker inspect metadata. Docker runtime IDs and automatically generated state are not copied. A single-container restore does not recreate an entire multi-service Compose stack.
 
 ## Excluding a container
 
@@ -96,19 +111,19 @@ DOCKERHUB_TOKEN=<Docker Hub personal access token with Read & Write>
 Create and push a version tag:
 
 ```bash
-git tag -a v1.5.0 -m "ContBak 1.5.0"
-git push origin v1.5.0
+git tag -a v1.6.0 -m "ContBak 1.6.0"
+git push origin v1.6.0
 ```
 
 The workflow then:
 
 1. Builds `linux/amd64` and `linux/arm64` images.
-2. Publishes `frazon11/contbak:1.5.0`, `frazon11/contbak:1.5`, and `latest`.
+2. Publishes `frazon11/contbak:1.6.0`, `frazon11/contbak:1.6`, and `latest`.
 3. Creates a GitHub Release with automatically generated release notes.
 
 ## Known limitations
 
-- Deleted containers are not recreated automatically yet.
+- Full multi-service Docker Compose stack recreation is not yet implemented.
 - Backups are full TAR/Gzip archives, not incremental or deduplicated.
 - Backups are not encrypted by ContBak itself.
 - Jobs execute sequentially.
