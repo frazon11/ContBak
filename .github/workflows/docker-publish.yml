@@ -10,7 +10,78 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          expected="v$(tr -d '\r\n' < VERSION)"
+          test "$GITHUB_REF_NAME" = "$expected" || {
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
+            exit 1
+          }
+
+      - name: Validate Python source and patch scripts
+        run: |
+          python -m py_compile app/main.py
+          for patch in app/patch_restore_*.py; do
+            [ -e "$patch" ] || continue
+            python -m py_compile "$patch"
+          done
+
+      - name: Build validation image
+        run: docker build --pull --tag contbak:release-test .
+
+      - name: Start validation container
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/contbak-release/config" "$RUNNER_TEMP/contbak-release/backups"
+          docker run -d --name contbak-release-test \
+            -p 18080:8080 \
+            -e CONTBAK_USER=ci \
+            -e CONTBAK_PASSWORD=ci-test-password \
+            -e CONTBAK_BACKUP_PATH="$RUNNER_TEMP/contbak-release/backups" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/contbak-release/config:/data" \
+            -v "$RUNNER_TEMP/contbak-release/backups:/backups" \
+            contbak:release-test
+
+      - name: Verify health and version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < VERSION)"
+          for attempt in $(seq 1 30); do
+            if response="$(curl --fail --silent http://127.0.0.1:18080/health 2>/dev/null)"; then
+              echo "$response"
+              python - "$expected" "$response" <<'PY'
+import json, sys
+expected, payload = sys.argv[1], json.loads(sys.argv[2])
+assert payload.get('status') == 'ok', payload
+assert payload.get('version') == expected, (payload, expected)
+PY
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs contbak-release-test >&2 || true
+          exit 1
+
+      - name: Show validation logs on failure
+        if: failure()
+        run: docker logs contbak-release-test || true
+
+      - name: Cleanup validation container
+        if: always()
+        run: docker rm -f contbak-release-test >/dev/null 2>&1 || true
+
   docker:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
