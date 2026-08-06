@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 LABEL org.opencontainers.image.title="ContBak" \
       org.opencontainers.image.description="Web-based backup and restore manager for Docker containers, volumes and bind mounts" \
-      org.opencontainers.image.version="1.5.3" \
+      org.opencontainers.image.version="1.6.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Frazon11/ContBak" \
       org.opencontainers.image.url="https://github.com/Frazon11/ContBak"
@@ -10,12 +10,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app /app
-RUN sed -i "s/VERSION='1.4.1'/VERSION='1.5.3'/" /app/main.py \
+RUN sed -i "s/VERSION='1.4.1'/VERSION='1.6.0'/" /app/main.py \
     && python /app/patch_restore_v152.py \
     && python /app/patch_restore_v153.py \
-    && rm /app/patch_restore_v152.py /app/patch_restore_v153.py \
+    && python /app/patch_restore_v160.py \
+    && rm /app/patch_restore_v152.py /app/patch_restore_v153.py /app/patch_restore_v160.py \
     && cat /app/static/releases.js >> /app/static/app.js \
     && cat /app/static/import-restore.js >> /app/static/app.js \
+    && cat /app/static/restore-recreate.js >> /app/static/app.js \
+    && python -m py_compile /app/main.py \
     && mkdir -p /data /backups
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)" || exit 1
