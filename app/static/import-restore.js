@@ -8,8 +8,9 @@
     if (!status) return;
     status.textContent = message;
     status.dataset.state = type;
-    status.style.color = type === 'error' ? '#fca5a5' : '#86efac';
+    status.style.color = type === 'error' ? '#fca5a5' : type === 'info' ? '#93c5fd' : '#86efac';
     status.style.fontWeight = '700';
+    status.style.whiteSpace = 'pre-wrap';
   }
 
   async function refreshBackupOverview() {
@@ -28,7 +29,6 @@
     const currentTable = currentTab.querySelector('.table-card');
     const freshTable = freshTab.querySelector('.table-card');
     if (!currentTable || !freshTable) throw new Error('Backup table not found.');
-
     currentTable.replaceWith(freshTable);
 
     const freshExportForm = freshTab.querySelector('#export-form');
@@ -43,7 +43,6 @@
         });
       });
     }
-
     bindRestoreForms();
   }
 
@@ -52,7 +51,6 @@
     if (!form || form.dataset.feedbackBound === 'true') return;
     form.dataset.feedbackBound = 'true';
 
-    // Capture phase prevents the older handler from reloading the entire page.
     form.addEventListener('submit', async event => {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -85,7 +83,7 @@
 
         try {
           await refreshBackupOverview();
-        } catch (refreshError) {
+        } catch (_) {
           localStorage.setItem('contbak-backup-message', message);
           localStorage.setItem('contbak-tab', 'backups');
           location.reload();
@@ -109,6 +107,7 @@
 
       form.addEventListener('submit', async event => {
         event.preventDefault();
+        event.stopImmediatePropagation();
         if (!confirm(text(
           'Really overwrite the existing data for this container?',
           'Vorhandene Daten dieses Containers wirklich überschreiben?'
@@ -120,36 +119,35 @@
           button.disabled = true;
           button.innerHTML = `<span class="spinner"></span>${text('Restoring…', 'Wiederherstellung …')}`;
         }
-
-        const status = document.getElementById('import-status');
-        if (status) setStatus(text('Restore is running…', 'Wiederherstellung läuft …'), 'info');
+        setStatus(text('Restore is running. The container may be stopped temporarily…', 'Wiederherstellung läuft. Der Container kann kurzzeitig gestoppt werden …'), 'info');
 
         try {
           const response = await fetch(form.action, {
             method: 'POST',
             body: new FormData(form),
-            headers: { Accept: 'text/html' },
-            redirect: 'follow'
+            headers: { Accept: 'application/json' }
           });
+          const data = await response.json().catch(async () => ({ error: await response.text().catch(() => '') }));
           if (!response.ok) {
-            const body = await response.text();
-            throw new Error(body.match(/<pre[^>]*>(.*?)<\/pre>/s)?.[1] || `HTTP ${response.status}`);
+            const detail = data.error || data.detail || `${data.type || 'RestoreError'}: HTTP ${response.status}`;
+            throw new Error(detail);
           }
 
-          const message = text('Restore completed successfully.', 'Wiederherstellung erfolgreich abgeschlossen.');
+          const message = data.message || text('Restore completed successfully.', 'Wiederherstellung erfolgreich abgeschlossen.');
           setStatus(message, 'success');
           if (typeof showToast === 'function') showToast(message, 'success');
           await refreshBackupOverview();
         } catch (error) {
-          setStatus(error.message, 'error');
-          if (typeof showToast === 'function') showToast(error.message, 'error');
+          const message = text('Restore failed: ', 'Wiederherstellung fehlgeschlagen: ') + error.message;
+          setStatus(message, 'error');
+          if (typeof showToast === 'function') showToast(message, 'error');
         } finally {
           if (button) {
             button.disabled = false;
             button.textContent = originalLabel || text('Restore', 'Wiederherstellen');
           }
         }
-      });
+      }, true);
     });
   }
 
