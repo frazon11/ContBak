@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 LABEL org.opencontainers.image.title="ContBak" \
       org.opencontainers.image.description="Web-based backup and restore manager for Docker containers, volumes and bind mounts" \
-      org.opencontainers.image.version="1.5.2" \
+      org.opencontainers.image.version="1.5.3" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Frazon11/ContBak" \
       org.opencontainers.image.url="https://github.com/Frazon11/ContBak"
@@ -10,9 +10,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app /app
-RUN sed -i "s/VERSION='1.4.1'/VERSION='1.5.2'/" /app/main.py \
+RUN sed -i "s/VERSION='1.4.1'/VERSION='1.5.3'/" /app/main.py \
     && python /app/patch_restore_v152.py \
-    && rm /app/patch_restore_v152.py \
+    && python /app/patch_restore_v153.py \
+    && rm /app/patch_restore_v152.py /app/patch_restore_v153.py \
     && cat /app/static/releases.js >> /app/static/app.js \
     && cat /app/static/import-restore.js >> /app/static/app.js \
     && mkdir -p /data /backups
