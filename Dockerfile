@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 LABEL org.opencontainers.image.title="ContBak" \
       org.opencontainers.image.description="Web-based backup and restore manager for Docker containers, volumes and bind mounts" \
-      org.opencontainers.image.version="1.4.2" \
+      org.opencontainers.image.version="1.5.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Frazon11/ContBak" \
       org.opencontainers.image.url="https://github.com/Frazon11/ContBak"
@@ -10,7 +10,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app /app
-RUN sed -i "s/VERSION='1.4.1'/VERSION='1.4.2'/" /app/main.py \
+RUN sed -i "s/VERSION='1.4.1'/VERSION='1.5.0'/" /app/main.py \
+    && cat /app/static/releases.js >> /app/static/app.js \
     && mkdir -p /data /backups
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)" || exit 1
