@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0
+- Added full single-container recreation from `container-inspect.json` when the original container is missing.
+- Added restore modes for automatic selection, existing-container data restore, and container recreation.
+- Added conflict handling: abort, replace existing container, or recreate under a new name.
+- Recreates common Docker settings including image, environment, command, entrypoint, hostname, user, working directory, labels, ports, restart policy, capabilities, security options, devices, health-related runtime configuration where supported, volumes, bind mounts, and networks.
+- Pulls missing images, creates missing named volumes, prepares bind paths, and creates missing bridge networks.
+- Restores data before starting a recreated container.
+- Added a guided Restore dialog showing original container name, image, target container, mode, and conflict handling.
+- Added detailed step logging to the WebUI Logs page and `docker logs ContBak`.
+- A single-container recreation does not yet recreate an entire multi-service Compose stack.
+
 ## 1.5.0
 - Added automatic GitHub Release creation after a successful tagged Docker build.
 - Added README badges for latest release, Docker pulls, Docker image, and MIT license.
