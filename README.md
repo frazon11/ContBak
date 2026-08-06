@@ -1,30 +1,38 @@
 # ContBak
 
+[![Latest release](https://img.shields.io/github/v/release/Frazon11/ContBak?display_name=tag&sort=semver)](https://github.com/Frazon11/ContBak/releases/latest)
+[![Docker pulls](https://img.shields.io/docker/pulls/frazon11/contbak)](https://hub.docker.com/r/frazon11/contbak)
+[![Docker image](https://img.shields.io/badge/docker-frazon11%2Fcontbak-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/frazon11/contbak)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **Container Backup Manager with a web interface.**
 
-ContBak discovers Docker containers and their named volumes and bind mounts. It can back up one container or all containers, restore an existing backup, run daily schedules, and retain a configurable number of versions.
+ContBak discovers Docker containers and their named volumes and bind mounts. It supports individual and bulk backups, restore, schedules, retention, progress reporting, portable `.contbak` import/export, and English/German user interfaces.
 
 - GitHub: `Frazon11/ContBak`
 - Docker Hub: `frazon11/contbak`
-- Current version: `1.4.1`
+- Current version: `1.5.0`
 - License: MIT
 
 > [!WARNING]
-> ContBak mounts `/var/run/docker.sock`. This grants broad administrative control over the Docker host. Keep the interface on a trusted network or behind a VPN/authenticated reverse proxy. Do not expose it directly to the Internet.
+> ContBak mounts `/var/run/docker.sock`, which grants broad administrative control over the Docker host. Keep the interface on a trusted network or behind a VPN/authenticated reverse proxy.
 
-## Features
+## Highlights
 
-- Automatic container discovery
+- Automatic Docker container discovery
+- Card and detailed table views for containers
 - Named-volume and bind-mount backups
 - Per-container and backup-all actions
-- Optional stop/start for better filesystem consistency
+- Optional stop/start for filesystem consistency
+- Live backup progress and logs
 - Restore through the web interface
-- Daily schedules per container
-- Configurable retention
-- Backup manifests and `docker inspect` metadata
-- Responsive dashboard
-- `linux/amd64` and `linux/arm64` images
-- Synology DSM and Portainer-friendly deployment
+- Daily schedules and configurable retention
+- Download, multi-export, upload and import of `.contbak` archives
+- SHA256 verification during import
+- English and German UI
+- Built-in version history and update checker
+- Automatic GitHub Releases and Docker Hub publishing from version tags
+- Multi-architecture images for `linux/amd64` and `linux/arm64`
 
 ## Quick start
 
@@ -32,13 +40,16 @@ Create `.env` next to `docker-compose.yml`:
 
 ```dotenv
 TZ=Europe/Brussels
+CONTBAK_VERSION=latest
+WEB_PORT=8787
+CONTBAK_BASE_PATH=/volume1/docker/contbak
+
 CONTBAK_USER=admin
 CONTBAK_PASSWORD=replace-with-a-long-random-password
+
 HELPER_IMAGE=alpine:3.22
 STOP_CONTAINERS=true
 RETENTION_COUNT=7
-CONTBAK_CONFIG_PATH=/volume1/docker/contbak/config
-CONTBAK_BACKUP_PATH=/volume1/docker/contbak/backups
 ```
 
 Start ContBak:
@@ -53,74 +64,47 @@ Open:
 http://DOCKER-HOST:8787
 ```
 
-## Portainer
+## Storage layout
 
-Create the host directories first:
+`CONTBAK_BASE_PATH` is expanded automatically:
 
 ```text
 /volume1/docker/contbak/config
 /volume1/docker/contbak/backups
 ```
 
-Then deploy the supplied `docker-compose.yml` as a Portainer stack and define the environment variables in Portainer or upload the `.env` file.
-
-## Backups
-
-Each backup is stored below `/backups/<container>/<timestamp>/` and contains:
-
-```text
-manifest.json
-container-inspect.json
-mount_00_<name>.tar.gz
-mount_01_<name>.tar.gz
-```
-
-When `STOP_CONTAINERS=true`, a running container is stopped before its mount data is archived and started again afterward.
-
-## Restore behavior
-
-Version 1.4.1 restores mount contents into the original container's currently configured mounts. The container must still exist. Restore removes the existing content of every selected mount before extracting its archive.
-
-Always keep another tested backup before using restore in production.
-
-## Databases
-
-Stopping the database container makes a file-level backup safer, but application-native dumps remain the preferred method for databases requiring guaranteed transactional consistency. Native database hooks are planned for a later release.
+Each backup is stored below `/backups/<container>/<timestamp>/` and contains metadata plus one archive per supported persistent mount.
 
 ## Excluding a container
-
-Add this label:
 
 ```yaml
 labels:
   contbak.exclude: "true"
 ```
 
-ContBak excludes itself by default in the included compose file.
+ContBak excludes itself by default in the supplied Compose file.
 
 ## Publishing a release
 
-The repository workflow publishes tagged releases to Docker Hub. Configure these GitHub Actions secrets:
+Configure these repository secrets:
 
 ```text
 DOCKERHUB_USERNAME=frazon11
 DOCKERHUB_TOKEN=<Docker Hub personal access token with Read & Write>
 ```
 
-Then create and push a tag:
+Create and push a version tag:
 
 ```bash
-git tag -a v1.4.1 -m "ContBak 1.4.1"
-git push origin v1.4.1
+git tag -a v1.5.0 -m "ContBak 1.5.0"
+git push origin v1.5.0
 ```
 
-The workflow publishes:
+The workflow then:
 
-```text
-frazon11/contbak:1.4.1
-frazon11/contbak:1.0
-frazon11/contbak:latest
-```
+1. Builds `linux/amd64` and `linux/arm64` images.
+2. Publishes `frazon11/contbak:1.5.0`, `frazon11/contbak:1.5`, and `latest`.
+3. Creates a GitHub Release with automatically generated release notes.
 
 ## Known limitations
 
@@ -128,7 +112,7 @@ frazon11/contbak:latest
 - Backups are full TAR/Gzip archives, not incremental or deduplicated.
 - Backups are not encrypted by ContBak itself.
 - Jobs execute sequentially.
-- Restore should be tested on non-production data first.
+- Application-native database dumps remain preferable for strict transactional consistency.
 
 ## License
 
