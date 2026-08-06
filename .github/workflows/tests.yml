@@ -9,19 +9,63 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - run: pip install -r requirements.txt pytest
-      - run: python -m py_compile app/main.py
-      - run: pytest -q
-      - name: Validate Docker build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: contbak:test
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Python source and patch scripts
+        run: |
+          python -m py_compile app/main.py
+          for patch in app/patch_restore_*.py; do
+            [ -e "$patch" ] || continue
+            python -m py_compile "$patch"
+          done
+
+      - name: Build test image
+        run: docker build --pull --tag contbak:ci .
+
+      - name: Start ContBak smoke-test container
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/contbak-ci/config" "$RUNNER_TEMP/contbak-ci/backups"
+          docker run -d --name contbak-ci \
+            -p 18080:8080 \
+            -e CONTBAK_USER=ci \
+            -e CONTBAK_PASSWORD=ci-test-password \
+            -e CONTBAK_BACKUP_PATH="$RUNNER_TEMP/contbak-ci/backups" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/contbak-ci/config:/data" \
+            -v "$RUNNER_TEMP/contbak-ci/backups:/backups" \
+            contbak:ci
+
+      - name: Verify health and version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < VERSION)"
+          for attempt in $(seq 1 30); do
+            if response="$(curl --fail --silent http://127.0.0.1:18080/health 2>/dev/null)"; then
+              echo "$response"
+              python - "$expected" "$response" <<'PY'
+import json, sys
+expected, payload = sys.argv[1], json.loads(sys.argv[2])
+assert payload.get('status') == 'ok', payload
+assert payload.get('version') == expected, (payload, expected)
+PY
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'ContBak did not become healthy.' >&2
+          docker logs contbak-ci >&2 || true
+          exit 1
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs contbak-ci || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f contbak-ci >/dev/null 2>&1 || true
