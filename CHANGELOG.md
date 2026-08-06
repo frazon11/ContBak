@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.5.0
+- Added automatic GitHub Release creation after a successful tagged Docker build.
+- Added README badges for latest release, Docker pulls, Docker image, and MIT license.
+- Added an in-application Versions & Updates page.
+- Added a manual update check against published GitHub Releases.
+- Added release history with links to GitHub release notes.
+- Added Cards and Details views to the Containers page and remembered the selected view.
+- Simplified deployment configuration with `CONTBAK_BASE_PATH`, `CONTBAK_VERSION`, and `WEB_PORT`.
+
+## 1.4.2
+- Replaced separate config and backup host variables with `CONTBAK_BASE_PATH`.
+- Added configurable Docker image version and web port.
+
+## 1.4.1
+- Added English as the default UI language and a German language option.
+- Download single backup sets as portable `.contbak` archives.
+- Export multiple selected backups in one archive.
+- Upload and import ContBak archives from the WebUI.
+- Verify every imported file using SHA256 checksums.
+- Handle duplicate imports by rename, skip, or replace.
+- Show calculated backup size in the backup browser.
+
 ## 1.3.0
 - Added asynchronous backup jobs with immediate UI feedback.
 - Added per-container progress bar, status message and live job log.
@@ -12,41 +34,22 @@
 - Skip Docker sockets explicitly.
 - A single unreadable mount no longer aborts the complete backup; it is recorded in `manifest.json` and the run is marked as a warning.
 
-## 1.2.2 - 2026-07-18
-
+## 1.2.2
 - Handle directory and regular-file mounts separately.
 - Skip sockets and other special mounts such as `/var/run/docker.sock`.
 - Restore regular-file mounts with streamed extraction.
 
-All notable changes are documented here.
+## 1.2.1
+- Helper containers bind the real Docker-host backup path instead of the internal `/backups` path.
+- The web interface displays the running ContBak version.
 
-## 1.2.1 — 2026-07-18
-
-### Fixed
-- Helper containers now bind the real Docker-host backup path from `CONTBAK_BACKUP_PATH` instead of the internal `/backups` container path.
-- Backup and restore therefore work on Synology/Portainer without `Bind mount failed: '/backups' does not exist`.
-
-### Changed
-- The web interface now displays the running ContBak version.
-
-## 1.0.0 — 2026-07-16
-
-### Added
+## 1.0.0
 - Automatic discovery of Docker containers, named volumes, and bind mounts.
-- Backup of individual containers or all discovered containers.
+- Individual and bulk backups.
 - Optional container stop/start around a backup.
 - Restore of stored mounts to an existing container.
 - Daily schedules per container.
 - Retention management.
 - Responsive web dashboard and backup history.
 - Health endpoint and Docker health check.
-- Multi-architecture Docker Hub publishing for amd64 and arm64.
-- Synology and Portainer compose example.
-
-## 1.4.1
-- Download single backup sets as portable `.contbak` archives.
-- Export multiple selected backups in one archive.
-- Upload and import ContBak archives from the WebUI.
-- Verify every imported file using SHA256 checksums.
-- Handle duplicate imports by rename, skip, or replace.
-- Show calculated backup size in the backup browser.
+- Multi-architecture Docker Hub publishing.
