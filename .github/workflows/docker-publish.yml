@@ -1,16 +1,27 @@
-name: Build, publish and release ContBak
+name: CI / Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
+
+concurrency:
+  group: contbak-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
+    name: Validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -19,16 +30,19 @@ jobs:
 
       - name: Validate tag matches VERSION
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: |
           set -euo pipefail
           expected="v$(tr -d '\r\n' < VERSION)"
-          test "$GITHUB_REF_NAME" = "$expected" || {
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
             echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
             exit 1
-          }
+          fi
 
-      - name: Validate Python source and patch scripts
+      - name: Validate Python syntax
+        shell: bash
         run: |
+          set -euo pipefail
           python -m py_compile app/main.py
           for patch in app/patch_restore_*.py; do
             [ -e "$patch" ] || continue
@@ -36,23 +50,24 @@ jobs:
           done
 
       - name: Build validation image
-        run: docker build --pull --tag contbak:release-test .
+        run: docker build --pull --tag contbak:ci .
 
-      - name: Start validation container
+      - name: Start application smoke test
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/contbak-release/config" "$RUNNER_TEMP/contbak-release/backups"
-          docker run -d --name contbak-release-test \
+          mkdir -p "$RUNNER_TEMP/contbak-ci/config" "$RUNNER_TEMP/contbak-ci/backups"
+          docker run -d --name contbak-ci \
             -p 18080:8080 \
+            -e TZ=UTC \
             -e CONTBAK_USER=ci \
             -e CONTBAK_PASSWORD=ci-test-password \
-            -e CONTBAK_BACKUP_PATH="$RUNNER_TEMP/contbak-release/backups" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$RUNNER_TEMP/contbak-release/config:/data" \
-            -v "$RUNNER_TEMP/contbak-release/backups:/backups" \
-            contbak:release-test
+            -v "$RUNNER_TEMP/contbak-ci/config:/data" \
+            -v "$RUNNER_TEMP/contbak-ci/backups:/backups" \
+            contbak:ci
 
-      - name: Verify health and version
+      - name: Verify health and running version
+        shell: bash
         run: |
           set -euo pipefail
           expected="$(tr -d '\r\n' < VERSION)"
@@ -67,21 +82,55 @@ assert payload.get('version') == expected, (payload, expected)
 PY
               exit 0
             fi
+            if ! docker ps -a --format '{{.Names}}' | grep -qx contbak-ci; then
+              echo 'Smoke-test container disappeared.' >&2
+              exit 1
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' contbak-ci 2>/dev/null || true)" != "true" ]; then
+              echo 'Smoke-test container stopped unexpectedly.' >&2
+              docker logs contbak-ci >&2 || true
+              exit 1
+            fi
             sleep 2
           done
-          docker logs contbak-release-test >&2 || true
+          echo 'ContBak did not become healthy within 60 seconds.' >&2
+          docker logs contbak-ci >&2 || true
           exit 1
 
-      - name: Show validation logs on failure
+      - name: Show application logs on failure
         if: failure()
-        run: docker logs contbak-release-test || true
+        run: docker logs contbak-ci || true
 
-      - name: Cleanup validation container
+      - name: Cleanup smoke test
         if: always()
-        run: docker rm -f contbak-release-test >/dev/null 2>&1 || true
+        run: docker rm -f contbak-ci >/dev/null 2>&1 || true
 
-  docker:
+  cleanup-history:
+    name: Clean old failed main runs
     needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove superseded failed main runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$GITHUB_RUN_ID"
+          gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&status=failure&per_page=100" \
+            --jq '.workflow_runs[].id' | while read -r run_id; do
+              [ -n "$run_id" ] || continue
+              [ "$run_id" = "$current" ] && continue
+              echo "Deleting superseded failed workflow run $run_id"
+              gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/actions/runs/$run_id"
+            done
+
+  publish:
+    name: Publish
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -107,7 +156,7 @@ PY
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -120,10 +169,11 @@ PY
           provenance: mode=max
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
+          set -euo pipefail
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists."
           else
