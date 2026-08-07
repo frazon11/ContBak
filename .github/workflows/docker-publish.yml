@@ -76,12 +76,7 @@ jobs:
           for attempt in $(seq 1 30); do
             if response="$(curl --fail --silent http://127.0.0.1:18080/health 2>/dev/null)"; then
               echo "$response"
-              python - "$expected" "$response" <<'PY'
-import json, sys
-expected, payload = sys.argv[1], json.loads(sys.argv[2])
-assert payload.get('status') == 'ok', payload
-assert payload.get('version') == expected, (payload, expected)
-PY
+              python -c 'import json,sys; expected=sys.argv[1]; payload=json.loads(sys.argv[2]); assert payload.get("status")=="ok", payload; assert payload.get("version")==expected, (payload, expected)' "$expected" "$response"
               exit 0
             fi
             if ! docker ps -a --format '{{.Names}}' | grep -qx contbak-ci; then
