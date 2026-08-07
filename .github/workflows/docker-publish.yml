@@ -23,7 +23,7 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile app/main.py
-          for patch in app/patch_restore_*.py; do
+          for patch in app/patch_restore_*.py app/patch_backup_*.py; do
             [ -e "$patch" ] || continue
             python -m py_compile "$patch"
           done
@@ -52,11 +52,15 @@ jobs:
       - name: Build validation image
         run: docker build --pull --tag contbak:ci .
 
-      - name: Start application smoke test
+      - name: Start ContBak and backup test target
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/contbak-ci/config" "$RUNNER_TEMP/contbak-ci/backups"
+          mkdir -p "$RUNNER_TEMP/contbak-ci/config" "$RUNNER_TEMP/contbak-ci/backups" "$RUNNER_TEMP/contbak-target"
+          echo "persistent-test-data" > "$RUNNER_TEMP/contbak-target/example.txt"
+          docker run -d --name contbak-ci-target \
+            -v "$RUNNER_TEMP/contbak-target:/data" \
+            alpine:3.22 sleep 600
           docker run -d --name contbak-ci \
             -p 18080:8080 \
             -e TZ=UTC \
@@ -79,20 +83,65 @@ jobs:
               python -c 'import json,sys; expected=sys.argv[1]; payload=json.loads(sys.argv[2]); assert payload.get("status")=="ok", payload; assert payload.get("version")==expected, (payload, expected)' "$expected" "$response"
               exit 0
             fi
-            if ! docker ps -a --format '{{.Names}}' | grep -qx contbak-ci; then
-              echo 'Smoke-test container disappeared.' >&2
-              exit 1
-            fi
             if [ "$(docker inspect -f '{{.State.Running}}' contbak-ci 2>/dev/null || true)" != "true" ]; then
-              echo 'Smoke-test container stopped unexpectedly.' >&2
               docker logs contbak-ci >&2 || true
               exit 1
             fi
             sleep 2
           done
-          echo 'ContBak did not become healthy within 60 seconds.' >&2
           docker logs contbak-ci >&2 || true
           exit 1
+
+      - name: Test default-full and selective backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth='ci:ci-test-password'
+          target_id="$(docker inspect -f '{{.Id}}' contbak-ci-target)"
+
+          info="$(curl --fail --silent --user "$auth" "http://127.0.0.1:18080/api/backup-info/$target_id")"
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); m=[x for x in d["mounts"] if x.get("destination")=="/data"]; assert m and m[0].get("eligible") is True, d' "$info"
+
+          start_job() {
+            curl --fail --silent --user "$auth" -X POST "$@" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+          }
+          wait_job() {
+            local job_id="$1"
+            for attempt in $(seq 1 60); do
+              job="$(curl --fail --silent --user "$auth" "http://127.0.0.1:18080/api/jobs/$job_id")"
+              state="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["status"])' "$job")"
+              if [ "$state" = success ]; then return 0; fi
+              if [ "$state" = error ]; then echo "$job" >&2; return 1; fi
+              sleep 1
+            done
+            echo "Backup job timed out." >&2
+            return 1
+          }
+
+          full_job="$(start_job "http://127.0.0.1:18080/api/backup/$target_id")"
+          wait_job "$full_job"
+          full_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
+          python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; m=next(x for x in d["mounts"] if x.get("destination")=="/data"); assert m.get("archive"), m; assert (p.parent/"container-inspect.json").is_file()' "$full_manifest"
+
+          sleep 1
+          selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=[]' "http://127.0.0.1:18080/api/backup/$target_id")"
+          wait_job "$selective_job"
+          selective_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
+          python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; m=next(x for x in d["mounts"] if x.get("destination")=="/data"); assert m.get("archive") is None, m; assert m.get("archive_type")=="excluded", m; assert (p.parent/"container-inspect.json").is_file()' "$selective_manifest"
+
+          selective_rel="${selective_manifest#"$RUNNER_TEMP/contbak-ci/backups/"}"
+          selective_rel="${selective_rel%/manifest.json}"
+          docker rm -f contbak-ci-target
+          restore="$(curl --fail --silent --user "$auth" -X POST \
+            -H 'Accept: application/json' \
+            -F "path=$selective_rel" \
+            -F 'mode=recreate' \
+            -F 'target_name=contbak-ci-restored' \
+            -F 'conflict=abort' \
+            http://127.0.0.1:18080/restore)"
+          echo "$restore"
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("status")=="success", d; assert d.get("created") is True, d' "$restore"
+          test "$(docker inspect -f '{{.State.Running}}' contbak-ci-restored)" = true
 
       - name: Show application logs on failure
         if: failure()
@@ -100,7 +149,8 @@ jobs:
 
       - name: Cleanup smoke test
         if: always()
-        run: docker rm -f contbak-ci >/dev/null 2>&1 || true
+        run: |
+          docker rm -f contbak-ci contbak-ci-target contbak-ci-restored >/dev/null 2>&1 || true
 
   cleanup-history:
     name: Clean old failed main runs
@@ -120,7 +170,6 @@ jobs:
             --jq '.workflow_runs[].id' | while read -r run_id; do
               [ -n "$run_id" ] || continue
               [ "$run_id" = "$current" ] && continue
-              echo "Deleting superseded failed workflow run $run_id"
               gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/actions/runs/$run_id"
             done
 
