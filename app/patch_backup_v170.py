@@ -3,26 +3,13 @@ from pathlib import Path
 path=Path('/app/main.py')
 source=path.read_text(encoding='utf-8')
 
-old_jobs='''def run_backup_job(job_id,container_id,stop):
- try:
-  backup_container(container_id,stop,lambda p,m:job_progress(job_id,p,m))
-  job_progress(job_id,100,'Backup completed successfully.','success')
- except Exception as exc:
-  update_job(job_id,status='error',message=str(exc),error=str(exc),progress=100)
-def start_backup_job(container_id,stop):
- c=client.containers.get(container_id)
- job_id=uuid.uuid4().hex
- with job_lock:
-  active_jobs[job_id]={'id':job_id,'container_id':container_id,'container_name':c.name,'status':'queued','progress':0,'message':'Preparing backup…','error':None,'log':[{'time':datetime.now().strftime('%H:%M:%S'),'message':'Backup requested.'}]}
- threading.Thread(target=run_backup_job,args=(job_id,container_id,stop),daemon=True,name=f'backup-{job_id[:8]}').start()
- return active_jobs[job_id].copy()
-'''
 new_jobs='''def run_backup_job(job_id,container_id,stop,include_config=True,selected_mounts=None):
  try:
   backup_container(container_id,stop,lambda p,m:job_progress(job_id,p,m),include_config=include_config,selected_mounts=selected_mounts)
   job_progress(job_id,100,'Backup completed successfully.','success')
  except Exception as exc:
   update_job(job_id,status='error',message=str(exc),error=str(exc),progress=100)
+
 def start_backup_job(container_id,stop,include_config=True,selected_mounts=None):
  c=client.containers.get(container_id)
  job_id=uuid.uuid4().hex
@@ -32,8 +19,6 @@ def start_backup_job(container_id,stop,include_config=True,selected_mounts=None)
  return active_jobs[job_id].copy()
 '''
 
-start=source.index('def backup_container(container_id,stop:Optional[bool]=None,progress=None):')
-end=source.index('\n\n\ndef backup_path',start)
 new_backup=r'''def backup_container(container_id,stop:Optional[bool]=None,progress=None,include_config:bool=True,selected_mounts=None):
  with lock:
   started=datetime.now().isoformat(timespec='seconds'); c=client.containers.get(container_id); info=container_info(c)
@@ -91,12 +76,6 @@ new_backup=r'''def backup_container(container_id,stop:Optional[bool]=None,progre
     except Exception:pass
 '''
 
-old_api='''@app.post('/api/backup/{container_id}')
-def api_backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None)):
- auth(request)
- try:return JSONResponse(start_backup_job(container_id,stop=='on'),status_code=202)
- except Exception as exc:return JSONResponse({'error':str(exc)},status_code=400)
-'''
 new_api='''@app.get('/api/backup-info/{container_id}')
 def api_backup_info(request:Request,container_id:str):
  auth(request)
@@ -121,9 +100,6 @@ def api_backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None
  except Exception as exc:return JSONResponse({'error':str(exc)},status_code=400)
 '''
 
-old_sync="""@app.post('/backup/{container_id}')
-def backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None)): auth(request); backup_container(container_id,stop=='on'); return RedirectResponse('/',303)
-"""
 new_sync="""@app.post('/backup/{container_id}')
 def backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None),include_config:Optional[str]=Form('on'),mounts_json:Optional[str]=Form(None)):
  auth(request)
@@ -132,8 +108,17 @@ def backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None),in
  return RedirectResponse('/',303)
 """
 
-for label,before,after in [('jobs',old_jobs,new_jobs),('API',old_api,new_api),('sync endpoint',old_sync,new_sync)]:
- if before not in source:raise SystemExit(f'ContBak 1.7.0 patch: {label} pattern not found; refusing unsafe patch.')
- source=source.replace(before,after,1)
-source=source[:start]+new_backup+source[end:]
+def replace_region(text,start_marker,end_marker,replacement,label):
+ try:
+  start=text.index(start_marker)
+  end=text.index(end_marker,start)
+ except ValueError as exc:
+  raise SystemExit(f'ContBak 1.7.0 patch: {label} boundary not found; refusing unsafe patch.') from exc
+ return text[:start]+replacement+text[end:]
+
+source=replace_region(source,'def run_backup_job(', '\ndef db_conn',new_jobs,'backup job functions')
+source=replace_region(source,'def backup_container(', '\ndef backup_path',new_backup,'backup_container function')
+source=replace_region(source,"@app.post('/api/backup/{container_id}')", "\n@app.get('/api/jobs/{job_id}')",new_api,'backup API endpoints')
+source=replace_region(source,"@app.post('/backup/{container_id}')", "\n@app.post('/backup-all')",new_sync,'synchronous backup endpoint')
+
 path.write_text(source,encoding='utf-8')
