@@ -62,6 +62,8 @@ jobs:
             -e TZ=UTC \
             -e CONTBAK_USER=ci \
             -e CONTBAK_PASSWORD=ci-test-password \
+            -e CONTBAK_BACKUP_PATH="$RUNNER_TEMP/contbak-ci/backups" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$RUNNER_TEMP/contbak-ci/config:/data" \
             -v "$RUNNER_TEMP/contbak-ci/backups:/backups" \
             contbak:ci
