@@ -32,8 +32,6 @@ def start_backup_job(container_id,stop,include_config=True,selected_mounts=None)
  return active_jobs[job_id].copy()
 '''
 
-start=source.index('def backup_container(container_id,stop:Optional[bool]=None,progress=None):')
-end=source.index('\n\n\ndef backup_path',start)
 new_backup=r'''def backup_container(container_id,stop:Optional[bool]=None,progress=None,include_config:bool=True,selected_mounts=None):
  with lock:
   started=datetime.now().isoformat(timespec='seconds'); c=client.containers.get(container_id); info=container_info(c)
@@ -135,5 +133,11 @@ def backup_one(request:Request,container_id:str,stop:Optional[str]=Form(None),in
 for label,before,after in [('jobs',old_jobs,new_jobs),('API',old_api,new_api),('sync endpoint',old_sync,new_sync)]:
  if before not in source:raise SystemExit(f'ContBak 1.7.0 patch: {label} pattern not found; refusing unsafe patch.')
  source=source.replace(before,after,1)
+
+# Compute function offsets only after all earlier replacements. Replacements above
+# change the length of source before backup_container(), so cached offsets would
+# splice the generated function into the wrong location and corrupt main.py.
+start=source.index('def backup_container(container_id,stop:Optional[bool]=None,progress=None):')
+end=source.index('\n\n\ndef backup_path',start)
 source=source[:start]+new_backup+source[end:]
 path.write_text(source,encoding='utf-8')
