@@ -5,7 +5,7 @@ source=path.read_text(encoding='utf-8')
 
 # Replace the final backup implementation after all older patches have run.
 start=source.index('def backup_container(')
-end=source.index('\n\n\ndef backup_path',start)
+end=source.index('def backup_path(',start)
 new_backup=r'''def _backup_mount_spec(m, bind_to='/source', mode='ro'):
  mount_type=(m.get('type') or '').lower()
  if mount_type=='volume':
@@ -97,6 +97,8 @@ def backup_container(container_id,stop:Optional[bool]=None,progress=None,include
      c.start()
     except Exception as restart_error:
      print(f'[backup] {c.name}: container restart failed: {restart_error}',flush=True)
+
+
 '''
 source=source[:start]+new_backup+source[end:]
 
