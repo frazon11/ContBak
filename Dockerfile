@@ -21,7 +21,8 @@ RUN sed -i "s/VERSION='1.4.1'/VERSION='${APP_VERSION}'/" /app/main.py \
     && python /app/patch_restore_v161.py \
     && python /app/patch_backup_v170.py \
     && python /app/patch_mounts_v171.py \
-    && rm /app/patch_restore_v152.py /app/patch_restore_v153.py /app/patch_restore_v160.py /app/patch_restore_v161.py /app/patch_backup_v170.py /app/patch_mounts_v171.py \
+    && python /app/patch_mounts_v172.py \
+    && rm /app/patch_restore_v152.py /app/patch_restore_v153.py /app/patch_restore_v160.py /app/patch_restore_v161.py /app/patch_backup_v170.py /app/patch_mounts_v171.py /app/patch_mounts_v172.py \
     && cat /app/static/releases.js >> /app/static/app.js \
     && cat /app/static/import-restore.js >> /app/static/app.js \
     && cat /app/static/restore-recreate.js >> /app/static/app.js \
