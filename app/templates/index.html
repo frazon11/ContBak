@@ -54,243 +54,35 @@
     <main>
       <section class="tab-panel active" id="tab-dashboard">
         <div class="stats-grid">
-          <article class="stat-card">
-            <span>Container</span>
-            <strong>{{ containers|length }}</strong>
-            <small>{{ containers|selectattr('status','equalto','running')|list|length }} active</small>
-          </article>
-          <article class="stat-card">
-            <span>Backups</span>
-            <strong>{{ backups|length }}</strong>
-            <small>up to 50 displayed</small>
-          </article>
-          <article class="stat-card">
-            <span>Schedules</span>
-            <strong>{{ jobs|length }}</strong>
-            <small>daily jobs</small>
-          </article>
-          <article class="stat-card">
-            <span>Last run</span>
-            <strong class="stat-text">{% if runs %}{{ runs[0].status }}{% else %}–{% endif %}</strong>
-            <small>{% if runs %}{{ runs[0].started }}{% else %}no run yet{% endif %}</small>
-          </article>
+          <article class="stat-card"><span>Container</span><strong>{{ containers|length }}</strong><small>{{ containers|selectattr('status','equalto','running')|list|length }} active</small></article>
+          <article class="stat-card"><span>Backups</span><strong>{{ backups|length }}</strong><small>up to 50 displayed</small></article>
+          <article class="stat-card"><span>Schedules</span><strong>{{ jobs|length }}</strong><small>daily jobs</small></article>
+          <article class="stat-card"><span>Last run</span><strong class="stat-text">{% if runs %}{{ runs[0].status }}{% else %}–{% endif %}</strong><small>{% if runs %}{{ runs[0].started }}{% else %}no run yet{% endif %}</small></article>
         </div>
 
         <div class="dashboard-grid">
-          <section class="panel panel-wide">
-            <div class="panel-header">
-              <div>
-                <h2>Container status</h2>
-                <p>Current Docker environment status</p>
-              </div>
-              <button class="text-button" data-open-tab="containers">Show all</button>
-            </div>
-            <div class="compact-list">
-              {% for c in containers[:8] %}
-              <div class="compact-row">
-                <div class="service-icon">{{ c.name[:2]|upper }}</div>
-                <div class="grow">
-                  <strong>{{ c.name }}</strong>
-                  <span>{{ c.image }}</span>
-                </div>
-                <span class="badge badge-{{ c.status }}">{{ c.status }}</span>
-                <span class="mount-count">{{ c.mounts|length }} Mounts</span>
-              </div>
-              {% else %}
-              <div class="empty-state">No containers found.</div>
-              {% endfor %}
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Latest backups</h2>
-                <p>Most recent backup sets</p>
-              </div>
-            </div>
-            <div class="timeline">
-              {% for b in backups[:6] %}
-              <div class="timeline-item">
-                <span class="timeline-dot"></span>
-                <div>
-                  <strong>{{ b.container }}</strong>
-                  <span>{{ b.date }} · {{ b.mounts }} Mounts</span>
-                </div>
-              </div>
-              {% else %}
-              <div class="empty-state">No backups available yet.</div>
-              {% endfor %}
-            </div>
-          </section>
+          <section class="panel panel-wide"><div class="panel-header"><div><h2>Container status</h2><p>Current Docker environment status</p></div><button class="text-button" data-open-tab="containers">Show all</button></div><div class="compact-list">{% for c in containers[:8] %}<div class="compact-row"><div class="service-icon">{{ c.name[:2]|upper }}</div><div class="grow"><strong>{{ c.name }}</strong><span>{{ c.image }}</span></div><span class="badge badge-{{ c.status }}">{{ c.status }}</span><span class="mount-count">{{ c.mounts|length }} Mounts</span></div>{% else %}<div class="empty-state">No containers found.</div>{% endfor %}</div></section>
+          <section class="panel"><div class="panel-header"><div><h2>Latest backups</h2><p>Most recent backup sets</p></div></div><div class="timeline">{% for b in backups[:6] %}<div class="timeline-item"><span class="timeline-dot"></span><div><strong>{{ b.container }}</strong><span>{{ b.date }} · {{ b.mounts }} Mounts</span></div></div>{% else %}<div class="empty-state">No backups available yet.</div>{% endfor %}</div></section>
         </div>
       </section>
 
       <section class="tab-panel" id="tab-containers">
-        <div class="section-heading">
-          <div>
-            <h2>Container</h2>
-            <p>Einzelne Dienste sichern und Schedules verwalten</p>
-          </div>
-          <input id="container-search" class="search" type="search" placeholder="Search containers…">
-        </div>
-
-        <div class="container-grid" id="container-grid">
-          {% for c in containers %}
-          <article class="container-card" data-search="{{ c.name|lower }} {{ c.image|lower }} {{ c.stack|lower }}">
-            <div class="card-topline">
-              <div class="service-icon large">{{ c.name[:2]|upper }}</div>
-              <div class="grow min-width-0">
-                <h3>{{ c.name }}</h3>
-                <p class="truncate">{{ c.image }}</p>
-              </div>
-              <span class="badge badge-{{ c.status }}">{{ c.status }}</span>
-            </div>
-
-            <div class="meta-grid">
-              <div><span>Stack</span><strong>{{ c.stack or '–' }}</strong></div>
-              <div><span>Service</span><strong>{{ c.service or '–' }}</strong></div>
-              <div><span>Mounts</span><strong>{{ c.mounts|length }}</strong></div>
-              <div><span>ID</span><strong>{{ c.short_id }}</strong></div>
-            </div>
-
-            <details class="mount-details">
-              <summary>Show mounts</summary>
-              <div class="mount-list">
-                {% for m in c.mounts %}
-                <div class="mount-row">
-                  <span class="mount-type">{{ m.type }}</span>
-                  <div>
-                    <strong>{{ m.destination }}</strong>
-                    <small>{{ m.source }}</small>
-                  </div>
-                </div>
-                {% else %}
-                <div class="empty-inline">No persistent mounts</div>
-                {% endfor %}
-              </div>
-            </details>
-
-            <div class="card-actions">
-              <form method="post" action="/backup/{{ c.id }}" class="backup-form">
-                <label class="switch-row">
-                  <input type="checkbox" name="stop" {% if stop_default %}checked{% endif %}>
-                  <span>Stop container</span>
-                </label>
-                <button class="btn btn-primary btn-block" type="submit">Back up now</button>
-              </form>
-              <form method="post" action="/schedule/{{ c.id }}" class="schedule-form">
-                <input type="time" name="time" value="03:00" required>
-                <button class="btn btn-secondary" type="submit">Save schedule</button>
-              </form>
-            </div>
-          </article>
-          {% endfor %}
-        </div>
+        <div class="section-heading"><div><h2>Container</h2><p>Einzelne Dienste sichern und Schedules verwalten</p></div><input id="container-search" class="search" type="search" placeholder="Search containers…"></div>
+        <div class="container-grid" id="container-grid">{% for c in containers %}<article class="container-card" data-search="{{ c.name|lower }} {{ c.image|lower }} {{ c.stack|lower }}"><div class="card-topline"><div class="service-icon large">{{ c.name[:2]|upper }}</div><div class="grow min-width-0"><h3>{{ c.name }}</h3><p class="truncate">{{ c.image }}</p></div><span class="badge badge-{{ c.status }}">{{ c.status }}</span></div><div class="meta-grid"><div><span>Stack</span><strong>{{ c.stack or '–' }}</strong></div><div><span>Service</span><strong>{{ c.service or '–' }}</strong></div><div><span>Mounts</span><strong>{{ c.mounts|length }}</strong></div><div><span>ID</span><strong>{{ c.short_id }}</strong></div></div><details class="mount-details"><summary>Show mounts</summary><div class="mount-list">{% for m in c.mounts %}<div class="mount-row"><span class="mount-type">{{ m.type }}</span><div><strong>{{ m.destination }}</strong><small>{{ m.source }}</small></div></div>{% else %}<div class="empty-inline">No persistent mounts</div>{% endfor %}</div></details><div class="card-actions"><form method="post" action="/backup/{{ c.id }}" class="backup-form"><label class="switch-row"><input type="checkbox" name="stop" {% if stop_default %}checked{% endif %}><span>Stop container</span></label><button class="btn btn-primary btn-block" type="submit">Back up now</button></form><form method="post" action="/schedule/{{ c.id }}" class="schedule-form"><input type="time" name="time" value="03:00" required><button class="btn btn-secondary" type="submit">Save schedule</button></form></div></article>{% endfor %}</div>
       </section>
 
       <section class="tab-panel" id="tab-backups">
-        <div class="section-heading">
-          <div>
-            <h2>Backups</h2>
-            <p>Restore, download, export and import</p>
-          </div>
-        </div>
-        <section class="import-card">
-          <div><h3>Import backup</h3><p>.contbak, .tar.gz or .tgz upload. Checksums are verified before import.</p></div>
-          <form id="import-form" action="/backup-import" method="post" enctype="multipart/form-data">
-            <input id="import-file" type="file" name="file" accept=".contbak,.tar.gz,.tgz,.tar" required>
-            <select name="duplicate"><option value="rename">Rename duplicate</option><option value="skip">Skip duplicate</option><option value="replace">Replace duplicate</option></select>
-            <button class="btn btn-primary" type="submit">Upload & import</button>
-          </form>
-          <div id="import-status" class="import-status"></div>
-        </section>
-        <form method="post" action="/backup-export" id="export-form"></form>
-        <div class="bulk-actions"><button class="btn btn-secondary" type="submit" form="export-form">Export selected</button><span>Export format: .contbak with SHA256 checksums</span></div>
-        <div class="table-card">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th><input type="checkbox" id="select-all-backups" title="Select all"></th><th>Container</th><th>Date/time</th><th>Size</th><th>Mounts</th><th>Path</th><th class="right">Action</th></tr></thead>
-              <tbody>
-              {% for b in backups %}
-              <tr>
-                <td><input class="backup-select" type="checkbox" name="paths" value="{{ b.path }}" form="export-form"></td>
-                <td><strong>{{ b.container }}</strong></td>
-                <td>{{ b.date }}</td>
-                <td>{{ '%.1f'|format(b.size / 1048576) }} MB</td>
-                <td><span class="pill">{{ b.mounts }}</span></td>
-                <td><code>{{ b.path }}</code></td>
-                <td class="right action-group">
-                  <a class="btn btn-secondary btn-small" href="/backup-download?path={{ b.path|urlencode }}">Download</a>
-                  <form method="post" action="/restore" onsubmit="return confirm('Really overwrite existing data for this container?')">
-                    <input type="hidden" name="path" value="{{ b.path }}">
-                    <button class="btn btn-danger btn-small" type="submit">Restore</button>
-                  </form>
-                </td>
-              </tr>
-              {% else %}
-              <tr><td colspan="7"><div class="empty-state">No backups available yet.</div></td></tr>
-              {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <div class="section-heading"><div><h2>Backups</h2><p>Restore, download, export and import</p></div></div>
+        <section class="import-card"><div><h3>Import backup</h3><p>.contbak, .tar.gz or .tgz upload. Checksums are verified before import.</p></div><form id="import-form" action="/backup-import" method="post" enctype="multipart/form-data"><input id="import-file" type="file" name="file" accept=".contbak,.tar.gz,.tgz,.tar" required><select name="duplicate"><option value="rename">Rename duplicate</option><option value="skip">Skip duplicate</option><option value="replace">Replace duplicate</option></select><button class="btn btn-primary" type="submit">Upload & import</button></form><div id="import-status" class="import-status"></div></section>
+        <form method="post" action="/backup-export" id="export-form"></form><div class="bulk-actions"><button class="btn btn-secondary" type="submit" form="export-form">Export selected</button><span>Export format: .contbak with SHA256 checksums</span></div>
+        <div class="table-card"><div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all-backups" title="Select all"></th><th>Container</th><th>Date/time</th><th>Size</th><th>Mounts</th><th>Path</th><th class="right">Action</th></tr></thead><tbody>{% for b in backups %}<tr><td><input class="backup-select" type="checkbox" name="paths" value="{{ b.path }}" form="export-form"></td><td><strong>{{ b.container }}</strong></td><td>{{ b.date }}</td><td>{{ '%.1f'|format(b.size / 1048576) }} MB</td><td><span class="pill">{{ b.mounts }}</span></td><td><code>{{ b.path }}</code></td><td class="right action-group"><a class="btn btn-secondary btn-small" href="/backup-download?path={{ b.path|urlencode }}">Download</a><form method="post" action="/restore" onsubmit="return confirm('Really overwrite existing data for this container?')"><input type="hidden" name="path" value="{{ b.path }}"><button class="btn btn-danger btn-small" type="submit">Restore</button></form></td></tr>{% else %}<tr><td colspan="7"><div class="empty-state">No backups available yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
       </section>
 
-      <section class="tab-panel" id="tab-schedules">
-        <div class="section-heading">
-          <div>
-            <h2>Schedules</h2>
-            <p>Automatic daily backups</p>
-          </div>
-        </div>
-        <div class="table-card">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Container</th><th>Execution</th><th>Status</th><th class="right">Action</th></tr></thead>
-              <tbody>
-              {% for j in jobs %}
-              <tr>
-                <td><strong>{{ j.container_name }}</strong></td>
-                <td>Daily at {{ j.schedule }}</td>
-                <td><span class="badge badge-running">aktiv</span></td>
-                <td class="right"><form method="post" action="/schedule-delete/{{ j.id }}"><button class="btn btn-secondary btn-small">Delete</button></form></td>
-              </tr>
-              {% else %}
-              <tr><td colspan="4"><div class="empty-state">Noch keine Schedules eingerichtet.</div></td></tr>
-              {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      <section class="tab-panel" id="tab-schedules"><div class="section-heading"><div><h2>Schedules</h2><p>Automatic daily backups</p></div></div><div class="table-card"><div class="table-wrap"><table><thead><tr><th>Container</th><th>Execution</th><th>Status</th><th class="right">Action</th></tr></thead><tbody>{% for j in jobs %}<tr><td><strong>{{ j.container_name }}</strong></td><td>Daily at {{ j.schedule }}</td><td><span class="badge badge-running">aktiv</span></td><td class="right"><form method="post" action="/schedule-delete/{{ j.id }}"><button class="btn btn-secondary btn-small">Delete</button></form></td></tr>{% else %}<tr><td colspan="4"><div class="empty-state">Noch keine Schedules eingerichtet.</div></td></tr>{% endfor %}</tbody></table></div></div></section>
 
       <section class="tab-panel" id="tab-logs">
-        <div class="section-heading">
-          <div>
-            <h2>Logs</h2>
-            <p>Results of recent backup and restore operations</p>
-          </div>
-        </div>
-        <div class="table-card">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Start</th><th>Container</th><th>Status</th><th>Message</th></tr></thead>
-              <tbody>
-              {% for r in runs %}
-              <tr>
-                <td>{{ r.started }}</td>
-                <td><strong>{{ r.container_name }}</strong></td>
-                <td><span class="badge badge-{{ 'running' if r.status == 'success' else 'exited' }}">{{ r.status }}</span></td>
-                <td>{{ r.message }}</td>
-              </tr>
-              {% else %}
-              <tr><td colspan="4"><div class="empty-state">No runs logged yet.</div></td></tr>
-              {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <div class="section-heading"><div><h2>Logs</h2><p>Results of recent backup and restore operations</p></div></div>
+        <div class="table-card"><div class="table-wrap"><table><thead><tr><th>Start</th><th>Container</th><th>Status</th><th>Message / mount details</th></tr></thead><tbody>{% for r in runs %}<tr><td>{{ r.started }}</td><td><strong>{{ r.container_name }}</strong></td><td><span class="badge badge-{{ 'running' if r.status == 'success' else 'exited' }}">{{ r.status }}</span></td><td class="log-message"><pre>{{ r.message }}</pre></td></tr>{% else %}<tr><td colspan="4"><div class="empty-state">No runs logged yet.</div></td></tr>{% endfor %}</tbody></table></div></div>
       </section>
     </main>
   </div>
