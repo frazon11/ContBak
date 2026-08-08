@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile app/main.py
-          for patch in app/patch_restore_*.py app/patch_backup_*.py; do
+          for patch in app/patch_restore_*.py app/patch_backup_*.py app/patch_mounts_*.py; do
             [ -e "$patch" ] || continue
             python -m py_compile "$patch"
           done
@@ -52,14 +52,17 @@ jobs:
       - name: Build validation image
         run: docker build --pull --tag contbak:ci .
 
-      - name: Start ContBak and backup test target
+      - name: Start ContBak and persistent-data test target
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/contbak-ci/config" "$RUNNER_TEMP/contbak-ci/backups" "$RUNNER_TEMP/contbak-target"
-          echo "persistent-test-data" > "$RUNNER_TEMP/contbak-target/example.txt"
+          echo "persistent-bind-data" > "$RUNNER_TEMP/contbak-target/bind.txt"
+          docker volume create contbak-ci-volume >/dev/null
+          docker run --rm -v contbak-ci-volume:/v alpine:3.22 sh -c 'echo persistent-volume-data > /v/volume.txt'
           docker run -d --name contbak-ci-target \
             -v "$RUNNER_TEMP/contbak-target:/data" \
+            -v contbak-ci-volume:/volume-data \
             alpine:3.22 sleep 600
           docker run -d --name contbak-ci \
             -p 18080:8080 \
@@ -92,7 +95,7 @@ jobs:
           docker logs contbak-ci >&2 || true
           exit 1
 
-      - name: Test default-full and selective backup
+      - name: Test full backup, selective backup and persistent restore
         shell: bash
         run: |
           set -euo pipefail
@@ -100,14 +103,14 @@ jobs:
           target_id="$(docker inspect -f '{{.Id}}' contbak-ci-target)"
 
           info="$(curl --fail --silent --user "$auth" "http://127.0.0.1:18080/api/backup-info/$target_id")"
-          python -c 'import json,sys; d=json.loads(sys.argv[1]); m=[x for x in d["mounts"] if x.get("destination")=="/data"]; assert m and m[0].get("eligible") is True, d' "$info"
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("eligible") is True, d; assert by["/volume-data"].get("eligible") is True, d; assert by["/volume-data"].get("type")=="volume", d' "$info"
 
           start_job() {
             curl --fail --silent --user "$auth" -X POST "$@" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])'
           }
           wait_job() {
             local job_id="$1"
-            for attempt in $(seq 1 60); do
+            for attempt in $(seq 1 90); do
               job="$(curl --fail --silent --user "$auth" "http://127.0.0.1:18080/api/jobs/$job_id")"
               state="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["status"])' "$job")"
               if [ "$state" = success ]; then return 0; fi
@@ -121,27 +124,31 @@ jobs:
           full_job="$(start_job "http://127.0.0.1:18080/api/backup/$target_id")"
           wait_job "$full_job"
           full_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
-          python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; m=next(x for x in d["mounts"] if x.get("destination")=="/data"); assert m.get("archive"), m; assert (p.parent/"container-inspect.json").is_file()' "$full_manifest"
+          python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive"), by["/volume-data"]; assert by["/volume-data"].get("type")=="volume"; assert (p.parent/"container-inspect.json").is_file()' "$full_manifest"
 
           sleep 1
-          selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=[]' "http://127.0.0.1:18080/api/backup/$target_id")"
+          selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=[\"/data\"]' "http://127.0.0.1:18080/api/backup/$target_id")"
           wait_job "$selective_job"
           selective_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
-          python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; m=next(x for x in d["mounts"] if x.get("destination")=="/data"); assert m.get("archive") is None, m; assert m.get("archive_type")=="excluded", m; assert (p.parent/"container-inspect.json").is_file()' "$selective_manifest"
+          python -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive") is None, by["/volume-data"]; assert by["/volume-data"].get("archive_type")=="excluded", by["/volume-data"]' "$selective_manifest"
 
-          selective_rel="${selective_manifest#"$RUNNER_TEMP/contbak-ci/backups/"}"
-          selective_rel="${selective_rel%/manifest.json}"
-          docker rm -f contbak-ci-target
+          full_rel="${full_manifest#"$RUNNER_TEMP/contbak-ci/backups/"}"
+          full_rel="${full_rel%/manifest.json}"
+          docker rm -f contbak-ci-target >/dev/null
+          rm -f "$RUNNER_TEMP/contbak-target/bind.txt"
+          docker volume rm contbak-ci-volume >/dev/null
+
           restore="$(curl --fail --silent --user "$auth" -X POST \
             -H 'Accept: application/json' \
-            -F "path=$selective_rel" \
+            -F "path=$full_rel" \
             -F 'mode=recreate' \
             -F 'target_name=contbak-ci-restored' \
             -F 'conflict=abort' \
             http://127.0.0.1:18080/restore)"
           echo "$restore"
-          python -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("status")=="success", d; assert d.get("created") is True, d' "$restore"
-          test "$(docker inspect -f '{{.State.Running}}' contbak-ci-restored)" = true
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); assert d.get("status")=="success", d; assert d.get("created") is True, d; assert len(d.get("restored_mounts") or [])==2, d' "$restore"
+          test "$(docker exec contbak-ci-restored cat /data/bind.txt)" = persistent-bind-data
+          test "$(docker exec contbak-ci-restored cat /volume-data/volume.txt)" = persistent-volume-data
 
       - name: Show application logs on failure
         if: failure()
@@ -151,6 +158,7 @@ jobs:
         if: always()
         run: |
           docker rm -f contbak-ci contbak-ci-target contbak-ci-restored >/dev/null 2>&1 || true
+          docker volume rm -f contbak-ci-volume >/dev/null 2>&1 || true
 
   cleanup-history:
     name: Clean old failed main runs
