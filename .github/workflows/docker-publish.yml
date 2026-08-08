@@ -127,7 +127,7 @@ jobs:
           python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive"), by["/volume-data"]; assert by["/volume-data"].get("type")=="volume"; assert (p.parent/"container-inspect.json").is_file()' "$full_manifest"
 
           sleep 1
-          selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=[\"/data\"]' "http://127.0.0.1:18080/api/backup/$target_id")"
+          selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=["/data"]' "http://127.0.0.1:18080/api/backup/$target_id")"
           wait_job "$selective_job"
           selective_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
           python -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive") is None, by["/volume-data"]; assert by["/volume-data"].get("archive_type")=="excluded", by["/volume-data"]' "$selective_manifest"
