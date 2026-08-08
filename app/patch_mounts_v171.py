@@ -84,16 +84,20 @@ def backup_container(container_id,stop:Optional[bool]=None,progress=None,include
    (target/'manifest.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
    if progress:progress(93,'Pruning old backups…')
    prune(BACKUP_ROOT/safe(c.name))
-   status='success' if failed==0 else 'warning'
+   if failed>0:
+    status='error'
+   elif skipped>0 or excluded>0 or not include_config:
+    status='warning'
+   else:
+    status='success'
    summary=f"{backed_up} backed up, {excluded} excluded, {skipped} skipped, {failed} failed; container config: {'yes' if include_config else 'no'}"
    message=summary + ('\n' + '\n'.join(details) if details else '\n[INFO] Container has no mounts.')
    add_run(c.name,started,status,message,str(target))
-   if progress:progress(97,summary)
+   if progress:progress(100,summary)
   except Exception as e:add_run(c.name,started,'error',str(e),str(target));raise
   finally:
    if was_running and should_stop:
     try:
-     if progress:progress(99,'Restarting container…')
      c.start()
     except Exception as restart_error:
      print(f'[backup] {c.name}: container restart failed: {restart_error}',flush=True)
