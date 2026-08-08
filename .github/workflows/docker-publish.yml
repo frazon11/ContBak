@@ -26,18 +26,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate tag matches VERSION
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          expected="v$(tr -d '\r\n' < VERSION)"
-          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
-            exit 1
-          fi
+        uses: actions/checkout@v6
 
       - name: Validate Python syntax
         shell: bash
@@ -50,7 +39,7 @@ jobs:
           done
 
       - name: Build validation image
-        run: docker build --pull --tag contbak:ci .
+        run: docker build --pull --build-arg APP_VERSION=dev --tag contbak:ci .
 
       - name: Start ContBak and persistent-data test target
         shell: bash
@@ -75,15 +64,14 @@ jobs:
             -v "$RUNNER_TEMP/contbak-ci/backups:/backups" \
             contbak:ci
 
-      - name: Verify health and running version
+      - name: Verify health and development version
         shell: bash
         run: |
           set -euo pipefail
-          expected="$(tr -d '\r\n' < VERSION)"
           for attempt in $(seq 1 30); do
             if response="$(curl --fail --silent http://127.0.0.1:18080/health 2>/dev/null)"; then
               echo "$response"
-              python -c 'import json,sys; expected=sys.argv[1]; payload=json.loads(sys.argv[2]); assert payload.get("status")=="ok", payload; assert payload.get("version")==expected, (payload, expected)' "$expected" "$response"
+              python -c 'import json,sys; payload=json.loads(sys.argv[1]); assert payload.get("status")=="ok", payload; assert payload.get("version")=="dev", payload' "$response"
               exit 0
             fi
             if [ "$(docker inspect -f '{{.State.Running}}' contbak-ci 2>/dev/null || true)" != "true" ]; then
@@ -188,38 +176,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Derive release version from tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building ContBak $version from tag $GITHUB_REF_NAME"
+
+      - name: Verify Docker Hub secrets
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo "::error::DOCKERHUB_USERNAME is missing"; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo "::error::DOCKERHUB_TOKEN is missing"; exit 1; }
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: frazon11/contbak
+          images: docker.io/frazon11/contbak
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
+            type=sha,prefix=sha-
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          pull: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.release.outputs.version }}
           provenance: mode=max
 
       - name: Create GitHub Release
