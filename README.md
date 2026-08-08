@@ -7,11 +7,11 @@
 
 **Container Backup Manager with a web interface.**
 
-ContBak discovers Docker containers and their named volumes and bind mounts. It supports individual and bulk backups, full single-container recreation, data restore, schedules, retention, progress reporting, portable `.contbak` import/export, and English/German user interfaces.
+ContBak discovers Docker containers and their named volumes and bind mounts. It supports individual and bulk backups, selectable backup components, full single-container recreation, data restore, schedules, retention, detailed progress/logging, portable `.contbak` import/export, and English/German user interfaces.
 
 - GitHub: `Frazon11/ContBak`
 - Docker Hub: `frazon11/contbak`
-- Current version: `1.6.0`
+- Latest published version: see the **Latest release** badge above
 - License: MIT
 
 > [!WARNING]
@@ -22,9 +22,11 @@ ContBak discovers Docker containers and their named volumes and bind mounts. It 
 - Automatic Docker container discovery
 - Card and detailed table views for containers
 - Named-volume and bind-mount backups
+- Selectable backup components; all supported components selected by default
 - Per-container and backup-all actions
 - Optional stop/start for filesystem consistency
-- Live backup progress and logs
+- Detailed per-mount backup/restore logging
+- Explicit `success`, `warning`, and `error` run states
 - Restore data into an existing container
 - Recreate a missing single container from saved Docker metadata
 - Restore conflict handling: abort, replace, or use a new name
@@ -34,7 +36,7 @@ ContBak discovers Docker containers and their named volumes and bind mounts. It 
 - SHA256 verification during import
 - English and German UI
 - Built-in version history and update checker
-- Automatic GitHub Releases and Docker Hub publishing from version tags
+- Tag-driven GitHub Releases and Docker Hub publishing
 - Multi-architecture images for `linux/amd64` and `linux/arm64`
 
 ## Quick start
@@ -76,7 +78,17 @@ http://DOCKER-HOST:8787
 /volume1/docker/contbak/backups
 ```
 
-Each backup is stored below `/backups/<container>/<timestamp>/` and contains `manifest.json`, `container-inspect.json`, and one archive per supported persistent mount.
+Each backup is stored below `/backups/<container>/<timestamp>/` and contains `manifest.json`, optional `container-inspect.json`, and one archive per selected supported persistent mount.
+
+## Backup status semantics
+
+ContBak treats run states strictly:
+
+- **success**: every selected supported component was backed up; nothing was skipped, excluded, or failed.
+- **warning**: at least one component was skipped or intentionally excluded, or container configuration was omitted.
+- **error**: at least one selected mount failed to back up or the backup job failed technically.
+
+The detailed log records each mount as `BACKED UP`, `EXCLUDED`, `SKIPPED`, or `FAILED`, including mount type, source/name, container destination, archive, size, and reason where applicable.
 
 ## Restore modes
 
@@ -99,7 +111,9 @@ labels:
 
 ContBak excludes itself by default in the supplied Compose file.
 
-## Publishing a release
+## Release model
+
+**Git tags are the single source of published release versions.** Development builds from `main`/pull requests identify themselves as `dev`; published images get their version from the `vX.Y.Z` tag that triggered the release workflow.
 
 Configure these repository secrets:
 
@@ -108,18 +122,27 @@ DOCKERHUB_USERNAME=frazon11
 DOCKERHUB_TOKEN=<Docker Hub personal access token with Read & Write>
 ```
 
-Create and push a version tag:
+After a change has passed CI and been merged, create the release tag:
 
 ```bash
-git tag -a v1.6.0 -m "ContBak 1.6.0"
-git push origin v1.6.0
+git tag -a vX.Y.Z -m "ContBak X.Y.Z"
+git push origin vX.Y.Z
 ```
 
-The workflow then:
+The workflow validates the tagged source and only then publishes:
 
-1. Builds `linux/amd64` and `linux/arm64` images.
-2. Publishes `frazon11/contbak:1.6.0`, `frazon11/contbak:1.6`, and `latest`.
-3. Creates a GitHub Release with automatically generated release notes.
+```text
+frazon11/contbak:X.Y.Z
+frazon11/contbak:X.Y
+frazon11/contbak:latest
+frazon11/contbak:sha-<commit>
+```
+
+It also creates the matching GitHub Release automatically.
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for released changes and work currently on `main` but not yet included in a release.
 
 ## Known limitations
 
