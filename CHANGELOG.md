@@ -4,6 +4,14 @@ All notable user-visible changes are recorded here. Changes under **Unreleased**
 
 ## Unreleased
 
+## 1.8.2 - 2026-08-09
+- Enforces `DOCKER_TIMEOUT` on the live low-level Docker API client immediately before container recreation.
+- `/health` now exposes both `docker_timeout_configured` and `docker_timeout_effective` so the running image can prove which timeout it is actually using.
+- Container recreate logs now show both configured and effective Docker API timeout values.
+- Added `DOCKER_TIMEOUT=300` to the deployment example.
+- Added `pull_policy: always` to the Compose example so redeploys pull the requested release image instead of silently reusing a stale local image.
+- Full backup, container recreation, Docker Archive API restore, and restored-data content verification remain green in CI with an effective 300-second Docker timeout.
+
 ## 1.8.1 - 2026-08-09
 - Increased the Docker API client timeout from the SDK default of 60 seconds to 300 seconds by default; it can be overridden with `DOCKER_TIMEOUT`.
 - Made container recreation timeout-safe: if Docker does not answer the create request in time, ContBak does not blindly create a second container.
