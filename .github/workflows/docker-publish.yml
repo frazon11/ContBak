@@ -98,10 +98,18 @@ jobs:
           }
           wait_job() {
             local job_id="$1"
+            local expected="$2"
             for attempt in $(seq 1 90); do
               job="$(curl --fail --silent --user "$auth" "http://127.0.0.1:18080/api/jobs/$job_id")"
               state="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["status"])' "$job")"
-              if [ "$state" = success ]; then return 0; fi
+              if [ "$state" = success ] || [ "$state" = warning ]; then
+                if [ "$state" != "$expected" ]; then
+                  echo "Expected terminal state '$expected' but got '$state': $job" >&2
+                  return 1
+                fi
+                echo "$job"
+                return 0
+              fi
               if [ "$state" = error ]; then echo "$job" >&2; return 1; fi
               sleep 1
             done
@@ -110,13 +118,16 @@ jobs:
           }
 
           full_job="$(start_job "http://127.0.0.1:18080/api/backup/$target_id")"
-          wait_job "$full_job"
+          full_job_result="$(wait_job "$full_job" success)"
+          echo "$full_job_result"
           full_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
           python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); assert d.get("container_config_included") is True, d; by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive"), by["/volume-data"]; assert by["/volume-data"].get("type")=="volume"; assert (p.parent/"container-inspect.json").is_file()' "$full_manifest"
 
           sleep 1
           selective_job="$(start_job -F 'include_config=on' -F 'mounts_json=["/data"]' "http://127.0.0.1:18080/api/backup/$target_id")"
-          wait_job "$selective_job"
+          selective_job_result="$(wait_job "$selective_job" warning)"
+          echo "$selective_job_result"
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["status"]=="warning", d; assert "1 excluded" in d.get("message","")' "$selective_job_result"
           selective_manifest="$(find "$RUNNER_TEMP/contbak-ci/backups/contbak-ci-target" -mindepth 2 -maxdepth 2 -name manifest.json -print | sort | tail -1)"
           python -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); by={x.get("destination"):x for x in d["mounts"]}; assert by["/data"].get("archive"), by["/data"]; assert by["/volume-data"].get("archive") is None, by["/volume-data"]; assert by["/volume-data"].get("archive_type")=="excluded", by["/volume-data"]' "$selective_manifest"
 
