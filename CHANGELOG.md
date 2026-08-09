@@ -4,6 +4,12 @@ All notable user-visible changes are recorded here. Changes under **Unreleased**
 
 ## Unreleased
 
+## 1.8.1 - 2026-08-09
+- Increased the Docker API client timeout from the SDK default of 60 seconds to 300 seconds by default; it can be overridden with `DOCKER_TIMEOUT`.
+- Made container recreation timeout-safe: if Docker does not answer the create request in time, ContBak does not blindly create a second container.
+- After a timeout-like create error, ContBak checks for up to 120 seconds whether Docker completed creation asynchronously and continues the restore with that container when found.
+- Kept the full Docker Archive API backup/recreate/restore round-trip CI green after the timeout handling change.
+
 ## 1.8.0 - 2026-08-09
 - Replaced the helper-container/host-remount backup engine for persistent data with Docker's native container archive API.
 - Bind mounts and named volumes are now backed up from the exact filesystem view of the target container using `get_archive`, eliminating Synology/DSM host-path remount assumptions.
