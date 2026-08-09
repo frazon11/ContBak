@@ -28,6 +28,7 @@ RUN sed -i "s/VERSION='1.4.1'/VERSION='${APP_VERSION}'/" /app/main.py \
     && cat /app/static/import-restore.js >> /app/static/app.js \
     && cat /app/static/restore-recreate.js >> /app/static/app.js \
     && cat /app/static/backup-options.js >> /app/static/app.js \
+    && cat /app/static/job-status-v173.js >> /app/static/app.js \
     && python -m py_compile /app/main.py \
     && mkdir -p /data /backups
 
