@@ -3,12 +3,20 @@
 All notable user-visible changes are recorded here. Changes under **Unreleased** are on `main` but are not part of the latest published tag yet.
 
 ## Unreleased
+
+## 1.7.2 - 2026-08-09
 - Changed backup run status semantics: `success` now requires a complete backup with no skipped, excluded, or failed components and with container configuration included.
-- Runs with skipped/excluded components or intentionally omitted container configuration are reported as `warning`.
-- Any mount backup failure is reported as `error`.
+- Runs with skipped/excluded components or intentionally omitted container configuration are reported as `warning`; any mount backup failure is reported as `error`.
 - Backup progress now reaches 100% only when the backup operation has actually completed.
+- Fixed asynchronous backup jobs so they preserve the real `success`, `warning`, or `error` result instead of overwriting normal returns as successful.
+- Added terminal `warning` handling in the WebUI so warning jobs no longer remain stuck in polling.
+- Changed persistent bind/volume handling so inaccessible supported persistent mounts are reported as `FAILED`, never silently downgraded to `SKIPPED`.
+- Added detailed mount-access diagnostics with inherited target-container mount access plus a direct Docker mount fallback, including the reason when both methods fail.
+- Added helper support for inheriting the target container's existing mounts, improving compatibility with NAS/Synology bind-mount layouts where Docker host paths may not be safely re-addressable from a second helper container.
+- Kept `SKIPPED` for intentionally non-restorable technical mounts such as Docker sockets and pseudo filesystems only.
 - Simplified release versioning: Git tags are now the single source of published versions; development builds identify themselves as `dev`.
 - Removed the duplicate repository `VERSION` source to prevent README/source/release version drift.
+- Expanded CI to verify full backup=`success`, intentionally selective backup=`warning`, bind-mount restore, named-volume restore, and persistent-data content after recreation.
 
 ## 1.7.1 - 2026-08-08
 - Added detailed per-mount backup diagnostics showing `BACKED UP`, `EXCLUDED`, `SKIPPED`, or `FAILED` with mount type, source/name, destination, archive size, and reason.
