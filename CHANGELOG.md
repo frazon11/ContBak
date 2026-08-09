@@ -4,6 +4,16 @@ All notable user-visible changes are recorded here. Changes under **Unreleased**
 
 ## Unreleased
 
+## 1.8.0 - 2026-08-09
+- Replaced the helper-container/host-remount backup engine for persistent data with Docker's native container archive API.
+- Bind mounts and named volumes are now backed up from the exact filesystem view of the target container using `get_archive`, eliminating Synology/DSM host-path remount assumptions.
+- Persistent data is restored directly into the target container mount namespace using `put_archive` instead of mounting Docker host paths into a helper container.
+- Backup archives remain compressed `.tar.gz` files and record `docker-archive-api` as their data engine in the manifest.
+- New backups remain compatible with container recreation from `container-inspect.json`.
+- Legacy directory backups can still be restored by the new Docker archive engine; legacy regular-file archives require a new backup because their historic archive layout cannot be mapped safely without guessing.
+- Fixed asynchronous job logging so the summary is shown once and per-mount diagnostic lines remain available separately in the live job log.
+- CI now performs a full persistent-data round trip: backup a real bind mount and named volume, remove the source container/data, recreate the container, restore both archives, and compare the restored file contents.
+
 ## 1.7.2 - 2026-08-09
 - Changed backup run status semantics: `success` now requires a complete backup with no skipped, excluded, or failed components and with container configuration included.
 - Runs with skipped/excluded components or intentionally omitted container configuration are reported as `warning`; any mount backup failure is reported as `error`.
